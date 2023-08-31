@@ -1,9 +1,8 @@
 ## all the test PASSED (also the skipped ones!)
 
 # require(dplyr)
-# require(engsoccerdata)
 #
-#
+# data("italy")
 # italy_2000<- italy %>%
 #   dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
 #   filter(Season=="2000")

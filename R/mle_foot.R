@@ -48,12 +48,11 @@
 #'
 #'
 #'@examples
-#'\donttest{
-#'if(requireNamespace("engsoccerdata")){
-#'require(engsoccerdata)
+#'\dontrun{
 #'require(tidyverse)
 #'require(dplyr)
 #'
+#'data("italy")
 #'italy <- as_tibble(italy)
 #'italy_2008<- italy %>%
 #'    dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
@@ -62,7 +61,6 @@
 #'mle_fit <- mle_foot(data  = italy_2008,
 #'                    model = "double_pois")
 #' }
-#'}
 #'
 #'
 #' @importFrom extraDistr dbvpois

@@ -10,9 +10,9 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<meta name="author" content="Leonardo Egidi" />
+<meta name="author" content="Leonardo Egidi, Vasilis Palaskas" />
 
-<meta name="date" content="2022-02-18" />
+<meta name="date" content="2023-08-31" />
 
 <title>Fitting football models and visualizing predictions with the footBayes package</title>
 
@@ -317,8 +317,8 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 
 <h1 class="title toc-ignore">Fitting football models and visualizing predictions with the <code>footBayes</code> package</h1>
-<h4 class="author">Leonardo Egidi</h4>
-<h4 class="date">2022-02-18</h4>
+<h4 class="author">Leonardo Egidi, Vasilis Palaskas</h4>
+<h4 class="date">2023-08-31</h4>
 
 
 <div id="TOC">
@@ -360,8 +360,9 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <li><p><span style="color:green">Double Poisson</span>: <span style="color:red"> <span class="citation">Baio and Blangiardo (2010)</span>, <span class="citation">Groll, Schauberger, and Tutz (2015)</span>, <span class="citation">Egidi, Pauli, and Torelli (2018)</span> </span></p></li>
 <li><p><span style="color:green">Bivariate Poisson</span>: <span style="color:red"> <span class="citation">Karlis and Ntzoufras (2003)</span> </span></p></li>
 <li><p><span style="color:green">Skellam</span> for goals’ differences: <span style="color:red"> <span class="citation">Karlis and Ntzoufras (2009)</span> </span></p></li>
+<li><p><span style="color:green">Zero-Inflated Skellam</span> for goals’ differences: <span style="color:red"> <span class="citation">Karlis and Ntzoufras (2009)</span> </span></p></li>
 <li><p><span style="color:green">Student-<span class="math inline">\(t\)</span></span> for goals’ differences: <span style="color:red"> <span class="citation">Gelman (2014)</span> </span></p></li>
-<li><p><span style="color:green">Zero-Inflated Poisson</span>: <span style="color:red"><span class="citation">Karlis and Ntzoufras (2003)</span> </span> (<em>coming soon!</em>),</p></li>
+<li><p><span style="color:green">Diagonal-Inflated Bivariate Poisson</span>: <span style="color:red"><span class="citation">Karlis and Ntzoufras (2003)</span> </span>.</p></li>
 </ul>
 <p>Precisely, we’ll learn how to:</p>
 <ul>
@@ -413,6 +414,11 @@ X_n, Y_n| \lambda_{1n}, \lambda_{2n}, \lambda_{3n} &amp; \sim \mathsf{BivPoisson
 \text{att}_T= -\sum_{t=1}^{T-1} \text{att}_{t}, \ \text{def}_T=- \sum_{t=1}^{T-1}\text{def}_{t}.
 \label{eq:corner2}
 \end{equation}\]</span></p>
+<p>The current version of the package allows for the fit of diagonal-inflated Bivariate Poisson <span style="color:red"><span class="citation">Karlis and Ntzoufras (2003)</span> </span> and zero-inflated Skellam models to better capture the probability of draw occurrences. A draw between two teams is represented by the outcomes on the diagonal of the probability table. To correct for the excess of draws we may add an inflation component on the diagonal of the probability function. This model is an extension of the simple zero-inflated model that allows only for an excess in (0,0) draws. Let’s focus on the diagonal-inflated bivariate Poisson model, specified as:</p>
+<p><span class="math display">\[\begin{equation}
+P_{X, Y}(x,y) = \textrm{Pr}(X=x, Y=y) = \begin{cases} (1-p) \text{BP}(\lambda_1, \lambda_2, \lambda_3) \ \ \ &amp; \text{if} \    x \ne y \\ (1-p) \text{BP}(\lambda_1, \lambda_2, \lambda_3) + pD(x, \eta) \ \ \ &amp; \text{if} \   x = y, \end{cases}
+\end{equation}\]</span></p>
+<p>where <span class="math inline">\(D(x, \eta)\)</span> is a discrete distribution with parameter vector <span class="math inline">\(\eta\)</span>.</p>
 <p>Now it’s time to fit and interpret the models, and we’ll mainly focus on the bivariate Poisson case. Classical estimates for BP models are provided, among the others, by <span style="color:red"><span class="citation">Karlis and Ntzoufras (2003)</span></span> (MLE through an EM algorithm) and <span style="color:red"><span class="citation">Koopman and Lit (2015)</span></span>; in the following, we quickly revise the maximum likelihood approach, but we’ll deeply focus on Bayesian estimation with the underlying <code>rstan</code> software to better capture:</p>
 <ul>
 <li><p>parameters’ uncertainty;</p></li>
@@ -464,18 +470,17 @@ L(\boldsymbol{\theta})   = &amp; \prod_{n=1}^N \exp \{ -(\lambda_{1n}+\lambda_{2
 <a class="sourceLine" id="cb1-2" title="2"><span class="kw">install_github</span>(<span class="st">&quot;LeoEgidi/footBayes&quot;</span>)</a></code></pre></div>
 <p>and load the following required packages (please, install them on your laptops):</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><a class="sourceLine" id="cb2-1" title="1"><span class="kw">library</span>(footBayes)</a>
-<a class="sourceLine" id="cb2-2" title="2"><span class="kw">library</span>(engsoccerdata)</a>
-<a class="sourceLine" id="cb2-3" title="3"><span class="kw">library</span>(bayesplot)</a>
-<a class="sourceLine" id="cb2-4" title="4"><span class="kw">library</span>(loo)</a>
-<a class="sourceLine" id="cb2-5" title="5"><span class="kw">library</span>(ggplot2)</a>
-<a class="sourceLine" id="cb2-6" title="6"><span class="kw">library</span>(dplyr)</a>
-<a class="sourceLine" id="cb2-7" title="7"><span class="kw">library</span>(tidyverse)</a></code></pre></div>
+<a class="sourceLine" id="cb2-2" title="2"><span class="kw">library</span>(bayesplot)</a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="kw">library</span>(loo)</a>
+<a class="sourceLine" id="cb2-4" title="4"><span class="kw">library</span>(ggplot2)</a>
+<a class="sourceLine" id="cb2-5" title="5"><span class="kw">library</span>(dplyr)</a>
+<a class="sourceLine" id="cb2-6" title="6"><span class="kw">library</span>(tidyverse)</a></code></pre></div>
 </div>
 <div id="model-fit" class="section level1">
 <h1>Model fit</h1>
 <div id="static-fit" class="section level2">
 <h2>Static fit</h2>
-<p>To start with some analysis, let’s now import some data about the Italian Serie A, season 2000/2001, through the <code>engsoccerdata</code> package: the season consists of <span class="math inline">\(T=18\)</span> teams, we start fitting a static bivariate Poisson model using:</p>
+<p>To start with some analysis, let’s now <code>italy</code> data about the Italian Serie A, specifically season 2000/2001: the season consists of <span class="math inline">\(T=18\)</span> teams, we start fitting a static bivariate Poisson model using:</p>
 <ul>
 <li><p>the likelihood approach: the <code>mle_foot</code> function returns the MLE estimates along with 95% profile-likelihood deviance confidence intervals (by default) and Wald-type confidence intervals. The user can specify the desired confidence interval with the optional argument <code>interval = c(&quot;profile&quot;, &quot;Wald&quot;)</code>.</p></li>
 <li><p>the Bayesian approach: the <code>stan_foot</code> function produces an Hamiltonian Monte Carlo posterior sampling by using the underlying <code>rstan</code> ecosystem. The user can choose the number of iterations (<code>iter</code>), the number of Markov chains (<code>chains</code>), and other optional arguments values. With the <code>print</code> function, the usual Bayesian model summaries can be obtained: posterior means, medians, standard deviations, percentiles at 2.5%, 25%, 75%, 97.5% level, effective sample size (<code>n_eff</code>) and Gelman-Rubin statistic (<code>Rhat</code>).</p></li>
@@ -495,7 +500,7 @@ L(\boldsymbol{\theta})   = &amp; \prod_{n=1}^N \exp \{ -(\lambda_{1n}+\lambda_{2
 <a class="sourceLine" id="cb3-12" title="12"></a>
 <a class="sourceLine" id="cb3-13" title="13"><span class="co">## alternatively, you can use the basic &#39;subsetting&#39; code, </span></a>
 <a class="sourceLine" id="cb3-14" title="14"><span class="co">## not using the &#39;tidyverse&#39; environment: </span></a>
-<a class="sourceLine" id="cb3-15" title="15"><span class="kw">data</span>(italy)</a>
+<a class="sourceLine" id="cb3-15" title="15"><span class="kw">data</span>(<span class="st">&quot;italy&quot;</span>)</a>
 <a class="sourceLine" id="cb3-16" title="16">italy &lt;-<span class="st"> </span><span class="kw">as.data.frame</span>(italy)</a>
 <a class="sourceLine" id="cb3-17" title="17">italy_<span class="dv">2000</span> &lt;-<span class="st"> </span><span class="kw">subset</span>(italy[, <span class="kw">c</span>(<span class="dv">2</span>,<span class="dv">3</span>,<span class="dv">4</span>,<span class="dv">6</span>,<span class="dv">7</span>)], </a>
 <a class="sourceLine" id="cb3-18" title="18">                     Season <span class="op">==</span><span class="st">&quot;2000&quot;</span>)</a>
@@ -830,7 +835,7 @@ p_{\text{loss}} = &amp;\ \textrm{Pr} (X&lt;Y)=\frac{1}{S}\sum_{s=1}^S| \tilde{x}
 <a class="sourceLine" id="cb20-20" title="20"></a>
 <a class="sourceLine" id="cb20-21" title="21"><span class="co"># compare three looic</span></a>
 <a class="sourceLine" id="cb20-22" title="22"></a>
-<a class="sourceLine" id="cb20-23" title="23"><span class="kw">compare</span>(loo1, loo1_t, loo2, loo3, loo3_t)</a></code></pre></div>
+<a class="sourceLine" id="cb20-23" title="23"><span class="kw">loo_compare</span>(loo1, loo1_t, loo2, loo3, loo3_t)</a></code></pre></div>
 <p>According to the above model LOOIC comparisons, the weekly-dynamic double Poisson models attain the lowest LOOIC values and are then the favored models in terms of predictive accuracy. The static model’s <code>fit1_stan</code> final looic is suggesting that the assumption of static team-specific parameters is too restrictive and oversimplified to capture teams’ skills over time and make reliable predictions. Anyway, from model checking we have the suggestion that even the static model has a reliable goodness of fit and could be used for some simplified analysis not requiring complex dynamic patterns.</p>
 </div>
 </div>
@@ -841,7 +846,6 @@ p_{\text{loss}} = &amp;\ \textrm{Pr} (X&lt;Y)=\frac{1}{S}\sum_{s=1}^S| \tilde{x}
 <li><p><strong>Data Web-scraping</strong>: automatic routine to scrape data from internet;</p></li>
 <li><p><strong>More numerical outputs</strong>: posterior probabilities, confusion matrices, betting strategies, etc.;</p></li>
 <li><p><strong>Diagnostics, pp checks</strong> designed for football;</p></li>
-<li><p><strong>Zero-inflated models</strong></p></li>
 <li><p><strong>Teams’ statistics</strong></p></li>
 <li><p><strong>More covariates</strong> to be included in the model (possibly by users).</p></li>
 <li><p><strong>More priors choices</strong></p></li>

@@ -22,12 +22,10 @@
 #'
 #'@examples
 #'
-#'\donttest{
-#'if(requireNamespace("engsoccerdata")){
-#'require(engsoccerdata)
+#'\dontrun{
 #'require(dplyr)
 #'
-#'
+#'data("italy")
 #'italy_1999_2000<- italy %>%
 #' dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
 #' dplyr::filter(Season == "1999"|Season=="2000")
@@ -37,7 +35,6 @@
 #'foot_round_robin(italy_1999_2000, fit)
 #'foot_round_robin(italy_1999_2000, fit, c("Parma AC", "AS Roma"))
 #'
-#' }
 #'}
 #'
 #'@importFrom dplyr as_tibble

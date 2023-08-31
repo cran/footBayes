@@ -32,11 +32,10 @@
 #'
 #'@examples
 #'
-#'\donttest{
-#'if(requireNamespace("engsoccerdata")){
+#'\dontrun{
 #'require(dplyr)
-#'require(engsoccerdata)
 #'
+#'data("italy")
 #'italy_2000<- italy %>%
 #'  dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
 #'  dplyr::filter(Season=="2000")
@@ -46,7 +45,6 @@
 #'pp_foot(italy_2000, fit)
 #'
 #' }
-#'}
 #'
 #' @importFrom bayesplot yaxis_text
 #' @importFrom bayesplot xaxis_text
@@ -61,7 +59,7 @@ pp_foot <- function(data, object,
                     type = c("aggregated", "matches"),
                     coverage = 0.95){
 
-  if (class(object)!="stanfit"){
+  if (inherits(object, "stanfit") == FALSE){
     stop("Please consider a 'stanfit' class model.")
   }
 

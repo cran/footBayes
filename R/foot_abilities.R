@@ -21,12 +21,11 @@
 #' @author Leonardo Egidi \email{legidi@units.it}
 #'
 #' @examples
-#' \donttest{
-#' if(requireNamespace("engsoccerdata")){
-#' require(engsoccerdata)
+#' \dontrun{
 #' require(dplyr)
 #' require(tidyverse)
 #'
+#' data("italy")
 #' italy <- as_tibble(italy)
 #'
 #' ### no dynamics, no prediction
@@ -59,25 +58,7 @@
 #'                        dynamic_type = "seasonal")   # bivariate poisson
 #' foot_abilities(fit5, italy_2000_2002)
 #'
-#' ### weekly dynamics, predict the last four weeks
-#'
-#' italy_2000<- italy %>%
-#'   dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
-#'   dplyr::filter(Season=="2000")
-#'
-#' fit6 <- stan_foot(data = italy_2000,
-#'                 model="double_pois", predict =36,
-#'                 dynamic_type = "weekly")  # double poisson
-#'
-#' fit7 <- stan_foot(data = italy_2000,
-#'                 model="student_t", predict =36,
-#'                 dynamic_type = "weekly")  # student_t
-#'
-#'
-#' foot_abilities(fit6, italy_2000)
-#' foot_abilities(fit7, italy_2000)
 #' }
-#'}
 #'@importFrom arm coefplot
 #'@importFrom rstan traceplot
 #'@importFrom graphics par
@@ -130,7 +111,7 @@ foot_abilities <- function(object, data,
   oldpar <- par(no.readonly = TRUE)    # code line i
   on.exit(par(oldpar))                 # code line i + 1
 
-  if (class(object)=="stanfit"){
+  if (inherits(object, "stanfit")){
     sims <- rstan::extract(object)
     # if (is.null(sims$y_prev)){
     #   teams <- unique(c(data$home, data$away))
@@ -541,7 +522,7 @@ foot_abilities <- function(object, data,
 
     }
   }
-  }else if (class(object)=="list"){
+  }else if (inherits(object, "list")){
 
     # check on selected team
 

@@ -26,29 +26,25 @@
 #'
 #'@author Leonardo Egidi \email{legidi@units.it}
 #'
-#'
 #' @examples
-#' \donttest{
-#' if(requireNamespace("engsoccerdata")){
-#' ### weekly dynamics, predict the last four weeks
-#' require(engsoccerdata)
+#' \dontrun{
+#' ### predict the last two weeks
 #' require(tidyverse)
 #' require(dplyr)
 #'
+#' data("italy")
 #' italy_2000<- italy %>%
 #'  dplyr::select(Season, home, visitor, hgoal,vgoal) %>%
 #'  dplyr::filter(Season=="2000")
 #'
 #' fit <- stan_foot(data = italy_2000,
-#'                  model="double_pois", predict =18,
-#'                  dynamic_type = "weekly")  # double pois
+#'                  model="double_pois", predict =18)  # double pois
 #'
 #' foot_prob(fit, italy_2000, "Inter",
 #'           "Bologna FC")
 #'
 #' foot_prob(fit, italy_2000) # all the out-of-sample matches
 #' }
-#'}
 #' @export
 
 
@@ -62,10 +58,10 @@ foot_prob <- function(object, data, home_team, away_team){
 
   # predict check: se 0 o nullo, no probabilities
 
-  if (class(object)=="stanfit"){
+  if (inherits(object, "stanfit")){
     sims <- rstan::extract(object)
     predict <- c(dim(sims$y_prev)[2], dim(sims$diff_y_prev)[2])
-  }else if (class(object)=="list"){
+  }else if (inherits(object, "list")){
     predict <- object$predict
   }else{
     stop("Provide one among these two model fit classes: 'stanfit' or 'list'.")
@@ -107,7 +103,7 @@ foot_prob <- function(object, data, home_team, away_team){
 
   # calcola probabilità con stan/mle
 
-  if (class(object)=="stanfit"){
+  if (inherits(object, "stanfit")){
 
     if (is.null(sims$y_prev)){  # student_t model
       M <- dim(sims$diff_y_prev)[1]
@@ -218,24 +214,37 @@ foot_prob <- function(object, data, home_team, away_team){
 
     }else{
 
-
+        teamaa = teamab = c()
       for (i in 1:length(find_match)){
-        posterior_prop1<-table(subset(previsioni1[,i], previsioni1[,i]<15))
-        posterior_prop2<-table(subset(previsioni2[,i], previsioni2[,i]<15))
+        posterior_prop1<-table(previsioni1[,i])
+        posterior_prop2<-table(previsioni2[,i])
 
-        teamaa=home_team[i]
-        teamab=away_team[i]
+        teamaa[i]=home_team[i]
+        teamab[i]=away_team[i]
 
-        x_min=y_min=min(length(posterior_prop1),
-                        length(posterior_prop2))
+        x_min=y_min= 5
+          #min(length(posterior_prop1),              ## OLD CODE
+          #              length(posterior_prop2))
 
-        counts_mix<-matrix(0, min(length(posterior_prop1), length(posterior_prop2)),
-                           min(length(posterior_prop1), length(posterior_prop2)))
+        counts_mix<- matrix(0, x_min, y_min)
+          #matrix(0, min(length(posterior_prop1), length(posterior_prop2)),          ## OLD CODE
+          #                 min(length(posterior_prop1), length(posterior_prop2)))
 
-        for (j in 1: min(length(posterior_prop1), length(posterior_prop2))){
-          for (t in 1: min(length(posterior_prop1), length(posterior_prop2))){
+        for (j in 1: x_min ){
+          for (t in 1: y_min ){
             counts_mix[j,t]<-posterior_prop1[j]*posterior_prop2[t]
           }}
+
+            # qq<-posterior_prop1[as.double(names(posterior_prop1))>=x_min]
+            # rr <- posterior_prop2
+            # qq_rr <- matrix(rep(rr, length(qq)), length(rr), length(qq))
+            # counts_mix[x_min, 1:y_min ] <- qq%*%t(qq_rr)[,1:y_min] # arrivato qui: 23/11
+            # counts_mix[x_min, y_min] <- counts_mix[x_min, y_min] + sum(qq%*%t(qq_rr)[,(y_min+1):length(rr)])
+            # qq2<-posterior_prop2[as.double(names(posterior_prop2))>=y_min]
+            # rr2 <- posterior_prop1
+            # qq_rr2 <- matrix(rep(rr2, length(qq2)), length(rr2), length(qq2))
+            # counts_mix[1:x_min, y_min] <- counts_mix[1:x_min, y_min] +  qq2%*%t(qq_rr2)[,1:x_min]
+            # counts_mix[x_min, y_min] <-counts_mix[x_min, y_min] + sum(qq2%*%t(qq_rr2)[,(x_min+1):length(rr2)])
         dim1 <- dim(counts_mix)[1]
         dim2 <- dim(counts_mix)[2]
 
@@ -243,7 +252,7 @@ foot_prob <- function(object, data, home_team, away_team){
         y <- seq(0,dim2-1, length.out=dim2)
         data_exp <- expand.grid(Home=x, Away=y)
         data_exp$Prob <- as.double(counts_mix/(M*M))
-        data_exp$matches <- paste(  teamaa,"-", teamab)
+        data_exp$matches <- paste(  teamaa[i],"-", teamab[i])
         data_exp$true_gol_home <- true_gol_home[i]
         data_exp$true_gol_away <- true_gol_away[i]
 
@@ -277,13 +286,55 @@ foot_prob <- function(object, data, home_team, away_team){
                         prob_a = round(prob_a,3),
                         mlo = mlo)
 
+      data_exp_tot <- data_exp_tot %>%
+        dplyr::group_by(matches)%>%
+        dplyr::mutate(prob_h = sum(Prob[Home > Away]),
+                      prob_d = sum(Prob[Home == Away]),
+                      prob_a = sum(Prob[Home < Away]))
 
+      data_exp_tot$favorite <- rep(teamaa, each = x_min*y_min)
+      data_exp_tot$underdog <- rep(teamab, each = x_min*y_min)
+
+      # re-order in terms of favorite and underdog
+      indexes <- (1:dim(data_exp_tot)[1])[data_exp_tot$prob_h < data_exp_tot$prob_a]
+      temp1 <- data_exp_tot$prob_h[indexes]
+      temp2 <- data_exp_tot$prob_a[indexes]
+      data_exp_tot$prob_h[indexes] <- temp2
+      data_exp_tot$prob_a[indexes] <- temp1
+
+      temp_name1 <- data_exp_tot$favorite[indexes]
+      temp_name2 <- data_exp_tot$underdog[indexes]
+      data_exp_tot$favorite[indexes] <- temp_name2
+      data_exp_tot$underdog[indexes] <- temp_name1
+
+      temp_coord1 <- data_exp_tot$Home[indexes]
+      temp_coord2 <- data_exp_tot$Away[indexes]
+      data_exp_tot$Home[indexes] <- temp_coord2
+      data_exp_tot$Away[indexes] <- temp_coord1
+
+      temp_tg1 <- data_exp_tot$true_gol_home[indexes]
+      temp_tg2 <- data_exp_tot$true_gol_away[indexes]
+      data_exp_tot$true_gol_home[indexes] <- temp_tg2
+      data_exp_tot$true_gol_away[indexes] <- temp_tg1
+
+      data_exp_tot <- dplyr::arrange(data_exp_tot, prob_h)
+      fav_teams <- data_exp_tot%>%distinct(favorite)
+      und_teams <- data_exp_tot%>%distinct(underdog)
+      axes_titles <- data.frame(matches = unique(data_exp_tot$matches),
+                                axis_title_x = fav_teams[,2],
+                                axis_title_y = und_teams[,2])
+      data_exp_tot$new_matches <- paste(data_exp_tot$favorite, "-", data_exp_tot$underdog)
+      #axes_titles$favorite <- as.character(as.vector(axes_titles$favorite))
       # To change the color of the gradation :
 
       p <- ggplot(data_exp_tot, aes(Home, Away, z= Prob)) + geom_tile(aes(fill = Prob)) +
         theme_bw() +
         scale_fill_gradient(low="white", high="black") +
-        facet_wrap("matches", scales = "free")+
+        facet_wrap(facets = ~reorder(new_matches, prob_h),
+                   scales = "fixed"
+                   #labeller = as_labeller(c(axes_titles$underdog)),
+                   #strip.position = "left"
+                   )+
         geom_rect(aes(xmin = as.numeric(as.vector(true_gol_home))-0.5,
                       xmax = as.numeric(as.vector(true_gol_home))+0.5,
                       ymin = as.numeric(as.vector(true_gol_away))-0.5,
@@ -292,21 +343,25 @@ foot_prob <- function(object, data, home_team, away_team){
         labs(title= "Posterior match probabilities")+
         yaxis_text(size=12)+
         xaxis_text( size = rel(12))+
+        ylab("Underdog")+
+        xlab("Favorite")+
         theme(plot.title = element_text(size = 22),
-              strip.text = element_text(size = 12),
+              strip.text = element_text(size = 11),
+              #strip.placement = "outside",   # format to look like title
+              strip.background = element_blank(),
               axis.text.x = element_text(size=22),
               axis.text.y = element_text(size=22),
-              plot.subtitle=element_text(size=13),
+              plot.subtitle=element_text(size=8.5),
               axis.title=element_text(size=18,face="bold"),
-              legend.text=element_text(size=14))
-      #ggsave(file=paste(teams[team1_prev[1]],"-", teams[team2_prev[1]], "Heatmap_pois.pdf", sep=""), width=6, height=6)
+              legend.text=element_text(size=14),
+              panel.spacing = unit(0.2, "lines"))
 
 
     }
     return(list(prob_table = tbl, prob_plot = p))
     }
 
-  }else if (class(object)=="list"){
+  }else if (inherits(object, "list")){
     model <- object$model
     predict <- object$predict
     n.iter <- object$n.iter
@@ -414,12 +469,7 @@ foot_prob <- function(object, data, home_team, away_team){
       return(list(prob_table = prob_matrix))
   }
 
-
-
-
-
-
-
-
-
 }
+
+
+

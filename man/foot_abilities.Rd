@@ -29,12 +29,11 @@ Depicts teams' abilities either from the Stan models fitted via the \code{stan_f
 or from MLE models fitted via the \code{mle_foot} function.
 }
 \examples{
-\donttest{
-if(requireNamespace("engsoccerdata")){
-require(engsoccerdata)
+\dontrun{
 require(dplyr)
 require(tidyverse)
 
+data("italy")
 italy <- as_tibble(italy)
 
 ### no dynamics, no prediction
@@ -67,24 +66,6 @@ fit5 <-stan_foot(data = italy_2000_2002,
                        dynamic_type = "seasonal")   # bivariate poisson
 foot_abilities(fit5, italy_2000_2002)
 
-### weekly dynamics, predict the last four weeks
-
-italy_2000<- italy \%>\%
-  dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
-  dplyr::filter(Season=="2000")
-
-fit6 <- stan_foot(data = italy_2000,
-                model="double_pois", predict =36,
-                dynamic_type = "weekly")  # double poisson
-
-fit7 <- stan_foot(data = italy_2000,
-                model="student_t", predict =36,
-                dynamic_type = "weekly")  # student_t
-
-
-foot_abilities(fit6, italy_2000)
-foot_abilities(fit7, italy_2000)
-}
 }
 }
 \author{

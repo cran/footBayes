@@ -4,7 +4,17 @@
 \alias{stan_foot}
 \title{Fit football models  with Stan}
 \usage{
-stan_foot(data, model, predict, ranking, dynamic_type, prior, prior_sd, ...)
+stan_foot(
+  data,
+  model,
+  predict,
+  ranking,
+  dynamic_type,
+  prior,
+  prior_sd,
+  ind_home = "TRUE",
+  ...
+)
 }
 \arguments{
 \item{data}{A data frame, or a matrix containing the following mandatory items: season, home team, away team,
@@ -12,12 +22,12 @@ home goals, away goals.}
 
 \item{model}{The type of Stan model used to fit the data.
 One among the following: \code{"double_pois"},
-\code{"biv_pois"}, \code{"skellam"}, \code{"student_t"}.}
+\code{"biv_pois"}, \code{"skellam"}, \code{"student_t"}, \code{"diag_infl_biv_pois"}, \code{"zero_infl_skellam"}.}
 
 \item{predict}{The number of out-of-sample matches. If missing, the function returns
 the fit for the training set only.}
 
-\item{ranking}{Eventual numeric ranking provided for the teams in the dataset (e.g., the \href{https://www.fifa.com/fifa-world-ranking}{Coca-Cola Fifa ranking})}
+\item{ranking}{Eventual numeric ranking provided for the teams in the dataset (e.g., the Coca-Cola Fifa ranking)}
 
 \item{dynamic_type}{One among \code{"weekly"} or \code{"seasonal"} for weekly dynamic parameters or seasonal
 dynamic parameters.}
@@ -29,6 +39,8 @@ See the \pkg{rstanarm} for a deep overview and read the vignette \href{http://mc
 
 \item{prior_sd}{The prior distribution for the team-specific standard deviations. See the \code{prior} argument for more details.}
 
+\item{ind_home}{Home effect (default is \code{TRUE}).}
+
 \item{...}{Optional parameters passed to the function
 in the \bold{rstan} package. It is possibly to specify \code{iter}, \code{chains}, \code{cores}, \code{refresh}, etc.}
 }
@@ -37,7 +49,7 @@ An object of S4 class, \code{\link[rstan]{stanfit-class}}.
 }
 \description{
 Stan football modelling for the most famous models:
-double Poisson, bivariate Poisson, Skellam and student t.
+double Poisson, bivariate Poisson, Skellam, student t, diagonal-inflated bivariate Poisson and zero-inflated Skellam.
 }
 \details{
 Let \eqn{(y^{H}_{n}, y^{A}_{n})} denote the
@@ -113,16 +125,19 @@ whereas for \eqn{\tau=1} we have:
 
 Of course, the identifiability constraint must be imposed for
 each time \eqn{\tau}.
+
+The current version of the package allows for the fit of a
+diagonal-inflated bivariate Poisson and a zero-inflated Skellam model in the
+spirit of (Karlis & Ntzoufras, 2003) to better capture draw occurrences. See the vignette for further details.
 }
 \examples{
-\donttest{
-if(requireNamespace("engsoccerdata")){
-require(engsoccerdata)
+\dontrun{
 require(tidyverse)
 require(dplyr)
 
 ### Use Italian Serie A from 2000 to 2002
 
+data("italy")
 italy <- as_tibble(italy)
 italy_2000_2002<- italy \%>\%
  dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
@@ -180,7 +195,6 @@ print(fit_p,  pars = c("home", "sigma_att",
                     "sigma_def"))
 }
 }
-}
 \references{
 Baio, G. and Blangiardo, M. (2010). Bayesian hierarchical model for the prediction of football
 results. Journal of Applied Statistics 37(2), 253-264.
@@ -202,5 +216,5 @@ of football match outcomes with estimation of the
 evolution variance parameter. IMA Journal of Management Mathematics, 22(2), 99-113.
 }
 \author{
-Leonardo Egidi \email{legidi@units.it}
+Leonardo Egidi \email{legidi@units.it}, Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
 }
