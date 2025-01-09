@@ -4,13 +4,19 @@
 \alias{pp_foot}
 \title{Posterior predictive checks for football models}
 \usage{
-pp_foot(data, object, type = c("aggregated", "matches"), coverage = 0.95)
+pp_foot(object, data, type = c("aggregated", "matches"), coverage = 0.95)
 }
 \arguments{
-\item{data}{A data frame, or a matrix containing the following mandatory items: home team, away team,
-home goals, away goals.}
+\item{object}{An object of class \code{\link[rstan]{stanfit}} or \code{stanFoot} as given by \code{stan_foot} function.}
 
-\item{object}{An object of class \code{\link[rstan]{stanfit}} as given by \code{stan_foot} function.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
 \item{type}{Type of plots, one among \code{"aggregated"} or \code{"matches"}.}
 
@@ -36,19 +42,20 @@ returned by the \code{stan_foot} function.
 \examples{
 
 \dontrun{
-require(dplyr)
+library(dplyr)
 
 data("italy")
-italy_2000<- italy \%>\%
+italy_2000 <- italy \%>\%
  dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
  dplyr::filter(Season=="2000")
 
+colnames(italy_2000) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
 fit <- stan_foot(italy_2000, "double_pois", iter = 200)
 
-pp_foot(italy_2000, fit)
+pp_foot(fit, italy_2000)
 
 }
-
 }
 \references{
 Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). Bayesian data analysis. CRC press.

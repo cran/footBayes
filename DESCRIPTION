@@ -1,9 +1,18 @@
 Package: footBayes
 Type: Package
 Title: Fitting Bayesian and MLE Football Models
-Version: 0.2.0
-Date: 2023-08-25
-Author: Leonardo Egidi[aut, cre], Vasilis Palaskas[aut].
+Version: 1.0.0
+Date: 2025-01-09
+Authors@R: c(person(given = "Leonardo",
+                      family = "Egidi",
+                      role = c("aut", "cre"),
+                      email = "legidi@units.it"),
+               person(given = c("Roberto", "Macrì"),
+                      family = "Demartino",
+                      role = "aut"),
+               person(given = "Vasilis",
+                      family = "Palaskas.",
+                      role = "aut"))
 Maintainer: Leonardo Egidi <legidi@units.it>
 License: GPL-2
 Description: This is the first package allowing for the estimation,
@@ -22,15 +31,17 @@ URL: https://github.com/leoegidi/footbayes
 Encoding: UTF-8
 SystemRequirements: pandoc (>= 1.12.3), pandoc-citeproc
 Depends: R (>= 3.1.0)
-Imports: rstan (>= 2.18.1), arm, reshape2, ggplot2, bayesplot,
-        matrixStats, extraDistr, parallel, metRology, dplyr, numDeriv,
-        tidyverse, magrittr
+Imports: rstan (>= 2.18.1), arm, reshape2, ggplot2, ggridges,
+        bayesplot, matrixStats, extraDistr, parallel, metRology, dplyr,
+        tidyr, numDeriv, magrittr, rlang
 Suggests: testthat, knitr (>= 1.37), rmarkdown (>= 2.10), loo
-VignetteBuilder: knitr
-RoxygenNote: 7.1.2
+RoxygenNote: 7.3.2
 LazyData: true
 BuildManual: yes
 NeedsCompilation: no
-Packaged: 2023-08-31 14:22:41 UTC; leoeg
+Packaged: 2025-01-09 15:07:52 UTC; 17245
+Author: Leonardo Egidi [aut, cre],
+  Roberto Macrì Demartino [aut],
+  Vasilis Palaskas. [aut]
 Repository: CRAN
-Date/Publication: 2023-08-31 14:50:02 UTC
+Date/Publication: 2025-01-09 15:20:02 UTC

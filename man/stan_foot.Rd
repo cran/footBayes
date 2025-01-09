@@ -7,45 +7,84 @@
 stan_foot(
   data,
   model,
-  predict,
+  predict = 0,
   ranking,
   dynamic_type,
-  prior,
-  prior_sd,
-  ind_home = "TRUE",
+  prior_par = list(ability = normal(0, NULL), ability_sd = cauchy(0, 5), home = normal(0,
+    5)),
+  home_effect = TRUE,
+  norm_method = "none",
+  ranking_map = NULL,
   ...
 )
 }
 \arguments{
-\item{data}{A data frame, or a matrix containing the following mandatory items: season, home team, away team,
-home goals, away goals.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
-\item{model}{The type of Stan model used to fit the data.
-One among the following: \code{"double_pois"},
-\code{"biv_pois"}, \code{"skellam"}, \code{"student_t"}, \code{"diag_infl_biv_pois"}, \code{"zero_infl_skellam"}.}
+\item{model}{A character string specifying the Stan model to fit. Options are:
+\itemize{
+  \item \code{"double_pois"}: Double Poisson model.
+  \item \code{"biv_pois"}: Bivariate Poisson model.
+  \item \code{"skellam"}: Skellam model.
+  \item \code{"student_t"}: Student's t model.
+  \item \code{"diag_infl_biv_pois"}: Diagonal-inflated bivariate Poisson model.
+  \item \code{"zero_infl_skellam"}: Zero-inflated Skellam model.
+}}
 
-\item{predict}{The number of out-of-sample matches. If missing, the function returns
-the fit for the training set only.}
+\item{predict}{An integer specifying the number of out-of-sample matches for prediction. If missing, the function fits the model to the entire dataset without making predictions.}
 
-\item{ranking}{Eventual numeric ranking provided for the teams in the dataset (e.g., the Coca-Cola Fifa ranking)}
+\item{ranking}{An optional \code{"btdFoot"} class element or a data frame containing ranking points for teams with the following columns:
+\itemize{
+  \item \code{periods}: Time periods corresponding to the rankings (integer >= 1).
+  \item \code{team}: Team names matching those in \code{data} (character string).
+  \item \code{rank_points}: Ranking points for each team (numeric).
+}}
 
-\item{dynamic_type}{One among \code{"weekly"} or \code{"seasonal"} for weekly dynamic parameters or seasonal
-dynamic parameters.}
+\item{dynamic_type}{A character string specifying the type of dynamics in the model. Options are:
+\itemize{
+  \item \code{"weekly"}: Weekly dynamic parameters.
+  \item \code{"seasonal"}: Seasonal dynamic parameters.
+}}
 
-\item{prior}{The prior distribution for the team-specific abilities.
-Possible choices: \code{normal}, \code{student_t}, \code{cauchy}, \code{laplace}.
-See the \pkg{rstanarm} for a deep overview and read the vignette \href{http://mc-stan.org/rstanarm/articles/priors.html}{\emph{Prior
-  Distributions for rstanarm Models}}}
+\item{prior_par}{A list specifying the prior distributions for the parameters of interest:
+  \itemize{
+    \item \code{ability}: Prior distribution for team-specific abilities. Possible distributions are \code{normal}, \code{student_t}, \code{cauchy}, \code{laplace}. Default is \code{normal(0, NULL)}.
+    \item \code{ability_sd}:  Prior distribution for the team-specific standard deviations. See the \code{prior} argument for more details. Default is \code{cauchy(0, 5)}.
+    \item \code{home}: Prior distribution for the home effect (\code{home}). Applicable only if \code{home_effect = TRUE}. Only normal priors are allowed. Default is \code{normal(0, 5)}.
+  }
 
-\item{prior_sd}{The prior distribution for the team-specific standard deviations. See the \code{prior} argument for more details.}
+  See the \pkg{rstanarm} package for more details on specifying priors.}
 
-\item{ind_home}{Home effect (default is \code{TRUE}).}
+\item{home_effect}{A logical value indicating the inclusion of a home effect in the model. (default is \code{TRUE}).}
 
-\item{...}{Optional parameters passed to the function
-in the \bold{rstan} package. It is possibly to specify \code{iter}, \code{chains}, \code{cores}, \code{refresh}, etc.}
+\item{norm_method}{A character string specifying the method used to normalize team-specific ranking points. Options are:
+\itemize{
+  \item \code{"none"}: No normalization (default).
+  \item \code{"standard"}: Standardization (mean 0, standard deviation 1).
+  \item \code{"mad"}: Median Absolute Deviation normalization.
+  \item \code{"min_max"}: Min-max scaling to [0,1].
+}}
+
+\item{ranking_map}{An optional vector mapping ranking periods to data periods. If not provided and the number of ranking periods matches the number of data periods, a direct mapping is assumed.}
+
+\item{...}{Optional parameters passed to \code{\link[rstan]{stan}} (e.g., \code{iter}, \code{chains}, \code{cores}, \code{control}).}
 }
 \value{
-An object of S4 class, \code{\link[rstan]{stanfit-class}}.
+A list of class \code{"stanFoot"} containing:
+  \itemize{
+    \item \code{fit}: The fitted \code{stanfit} object returned by \code{\link[rstan]{stan}}.
+    \item \code{data}: The input data.
+    \item \code{stan_data}: The data list for Stan.
+    \item \code{stan_code}: The Stan code of the underline model.
+    \item \code{stan_args}: The optional parameters passed to (\code{...}).
+  }
 }
 \description{
 Stan football modelling for the most famous models:
@@ -132,8 +171,55 @@ spirit of (Karlis & Ntzoufras, 2003) to better capture draw occurrences. See the
 }
 \examples{
 \dontrun{
-require(tidyverse)
-require(dplyr)
+library(dplyr)
+
+
+
+# Example usage with ranking
+data("italy")
+italy <- as_tibble(italy)
+italy_2021 <- italy \%>\%
+  select(Season, home, visitor, hgoal, vgoal) \%>\%
+  filter(Season == "2021")
+
+
+teams <- unique(italy_2021$home)
+n_rows <- 20
+
+# Create fake ranking
+ranking <- data.frame(
+  periods = rep(1, n_rows),
+  team = sample(teams, n_rows, replace = FALSE),
+  rank_points = sample(0:60, n_rows, replace = FALSE)
+)
+
+ranking <- ranking \%>\%
+  arrange(periods, desc(rank_points))
+
+
+colnames(italy_2021) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
+fit_with_ranking <- stan_foot(
+  data = italy_2021
+  model = "diag_infl_biv_pois",
+  ranking = ranking,
+  home_effect = TRUE,
+  prior_par = list(
+    ability = student_t(4, 0, NULL),
+    ability_sd = cauchy(0, 3),
+    home = normal(1, 10)
+  ),
+  norm_method = "mad",
+  iter = 1000,
+  chains = 2,
+  cores = 2,
+  control = list(adapt_delta = 0.95, max_treedepth = 15)
+)
+
+# Print a summary of the model fit
+print(fit_with_ranking, pars = c("att","def"))
+
+
 
 ### Use Italian Serie A from 2000 to 2002
 
@@ -143,54 +229,59 @@ italy_2000_2002<- italy \%>\%
  dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
  dplyr::filter(Season=="2000" |  Season=="2001"| Season=="2002")
 
+colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
 
 ### Fit Stan models
 ## no dynamics, no predictions
 
-fit1 <- stan_foot(data = italy_2000_2002,
-                model="double_pois") # double poisson
-print(fit1, pars =c("home", "sigma_att",
+fit_1 <- stan_foot(data = italy_2000_2002,
+                  model = "double_pois") # double poisson
+print(fit_1, pars = c("home", "sigma_att",
                     "sigma_def"))
 
-fit2 <- stan_foot(data = italy_2000_2002,
-                model="biv_pois")    # bivariate poisson
-print(fit2, pars =c("home", "rho",
+fit_2 <- stan_foot(data = italy_2000_2002,
+                  model = "biv_pois")    # bivariate poisson
+print(fit_2, pars = c("home", "rho",
                     "sigma_att", "sigma_def"))
 
-fit3 <- stan_foot(data = italy_2000_2002,
-                model="skellam")     # skellam
-print(fit3, pars =c("home", "sigma_att",
+fit_3 <- stan_foot(data = italy_2000_2002,
+                  mode ="skellam")     # skellam
+print(fit_3, pars = c("home", "sigma_att",
                     "sigma_def"))
 
-fit4 <- stan_foot(data = italy_2000_2002,
-                model="student_t")   # student_t
-print(fit4, pars =c("home", "beta"))
+fit_4 <- stan_foot(data = italy_2000_2002,
+                  model = "student_t")   # student_t
+print(fit_4, pars = c("beta"))
 
 ## seasonal dynamics, no prediction
 
-fit5 <- stan_foot(data = italy_2000_2002,
-                model="double_pois",
-                dynamic_type ="seasonal") # double poisson
-print(fit5, pars =c("home", "Sigma_att",
-                    "Sigma_def"))
+fit_5 <- stan_foot(data = italy_2000_2002,
+                  model = "double_pois",
+                  dynamic_type = "seasonal") # double poisson
+print(fit_5, pars = c("home", "sigma_att",
+                    "sigma_def"))
 
 ## seasonal dynamics, prediction for the last season
 
-fit6 <- stan_foot(data = italy_2000_2002,
-                model="double_pois",
-                dynamic_type ="seasonal",
-                predict = 306) # double poisson
-print(fit6, pars =c("home", "Sigma_att",
-                    "Sigma_def"))
+fit_6 <- stan_foot(data = italy_2000_2002,
+                  model = "double_pois",
+                  dynamic_type = "seasonal",
+                  predict = 170) # double poisson
+print(fit_6, pars = c("home", "sigma_att",
+                    "sigma_def"))
 
 ## other priors' options
+# double poisson with
+# student_t priors for teams abilities
+# and laplace prior for the hyper sds
 
 fit_p <- stan_foot(data = italy_2000_2002,
-                   model="double_pois",
-                   priors = student_t (4, 0, NULL),
-                   prior_sd = laplace(0,1)) # double poisson with
-                                            # student_t priors for teams abilities
-                                            # and laplace prior for the hyper sds
+                   model = "double_pois",
+                   prior_par = list(ability = student_t(4, 0, NULL),
+                                    ability_sd = laplace(0,1),
+                                    home = normal(1, 10)
+                                    ))
+
 print(fit_p,  pars = c("home", "sigma_att",
                     "sigma_def"))
 }
@@ -216,5 +307,5 @@ of football match outcomes with estimation of the
 evolution variance parameter. IMA Journal of Management Mathematics, 22(2), 99-113.
 }
 \author{
-Leonardo Egidi \email{legidi@units.it}, Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
+Leonardo Egidi \email{legidi@units.it}, Roberto Macrì Demartino \email{roberto.macridemartino@phd.unipd.it}, and Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
 }

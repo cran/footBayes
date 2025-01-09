@@ -4,15 +4,26 @@
 \alias{foot_rank}
 \title{Rank and points predictions}
 \usage{
-foot_rank(data, object, team_sel, visualize = c("aggregated", "individual"))
+foot_rank(
+  object,
+  data,
+  teams = NULL,
+  visualize = c("aggregated", "individual")
+)
 }
 \arguments{
-\item{data}{A data frame, or a matrix containing the following mandatory items: home team, away team,
-home goals, away goals.}
+\item{object}{An object of class \code{\link[rstan]{stanfit}} or \code{stanFoot} as given by \code{stan_foot} function.}
 
-\item{object}{An object of class \code{\link[rstan]{stanfit}} as given by \code{stan_foot} function.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
-\item{team_sel}{Selected team(s). By default, all the teams are selected.}
+\item{teams}{An optional character vector specifying team names to include. If \code{NULL}, all teams are included.}
 
 \item{visualize}{Type of plot, default is \code{"aggregated"}.}
 }
@@ -31,17 +42,18 @@ The dataset should refer to one or more seasons from a given national football l
 \examples{
 
 \dontrun{
-require(tidyverse)
-require(dplyr)
+library(dplyr)
 
 data("italy")
 italy_1999_2000<- italy \%>\%
 dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
 dplyr::filter(Season == "1999"|Season=="2000")
 
+colnames(italy_1999_2000) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
 fit <- stan_foot(italy_1999_2000, "double_pois", iter = 200)
-foot_rank(italy_1999_2000, fit)
-foot_rank(italy_1999_2000, fit, visualize =  "individual")
+foot_rank(fit, italy_1999_2000)
+foot_rank(fit, italy_1999_2000, visualize =  "individual")
  }
 
 }

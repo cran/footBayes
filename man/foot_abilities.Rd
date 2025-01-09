@@ -4,19 +4,31 @@
 \alias{foot_abilities}
 \title{Plot football abilities from Stan and MLE models}
 \usage{
-foot_abilities(object, data, type = c("attack", "defense", "both"), team, ...)
+foot_abilities(
+  object,
+  data,
+  type = c("attack", "defense", "both"),
+  teams = NULL,
+  ...
+)
 }
 \arguments{
-\item{object}{An object either of class \code{stanfit} as given by \code{stan_foot} function or class
+\item{object}{An object either of class \code{stanfit} or \code{stanFoot} as given by \code{stan_foot} function, or class
 \code{\link{list}} containing the Maximum Likelihood Estimates (MLE) for the model parameters fitted
  with \code{mle_foot}.}
 
-\item{data}{A data frame, or a matrix containing the following mandatory items: home team, away team,
-home goals, away goals.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
 \item{type}{Type of ability in Poisson models: one among \code{"defense"}, \code{"attack"} or \code{"both"}.}
 
-\item{team}{Valid team names.}
+\item{teams}{An optional character vector specifying team names to include. If \code{NULL}, all teams are included.}
 
 \item{...}{Optional graphical parameters.}
 }
@@ -30,29 +42,30 @@ or from MLE models fitted via the \code{mle_foot} function.
 }
 \examples{
 \dontrun{
-require(dplyr)
-require(tidyverse)
+library(dplyr)
 
 data("italy")
 italy <- as_tibble(italy)
 
 ### no dynamics, no prediction
 
-italy_2000_2002<- italy \%>\%
+italy_2000_2002 <- italy \%>\%
  dplyr::select(Season, home, visitor, hgoal, vgoal) \%>\%
  dplyr::filter(Season=="2000" |  Season=="2001" | Season =="2002")
 
+colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
 fit1 <- stan_foot(data = italy_2000_2002,
-                model="double_pois") # double poisson
+                  model="double_pois") # double poisson
 
 fit2 <- stan_foot(data = italy_2000_2002,
-                model="biv_pois")    # bivariate poisson
+                  model="biv_pois")    # bivariate poisson
 
 fit3 <- stan_foot(data = italy_2000_2002,
-                model="skellam")     # skellam
+                  model="skellam")     # skellam
 
 fit4 <- stan_foot(data = italy_2000_2002,
-                model="student_t")   # student_t
+                  model="student_t")   # student_t
 
 foot_abilities(fit1, italy_2000_2002)
 foot_abilities(fit2, italy_2000_2002)
@@ -62,8 +75,9 @@ foot_abilities(fit4, italy_2000_2002)
 ### seasonal dynamics, predict the last season
 
 fit5 <-stan_foot(data = italy_2000_2002,
-                       model="biv_pois", predict =306,
-                       dynamic_type = "seasonal")   # bivariate poisson
+                 model = "biv_pois",
+                 predict = 180,
+                 dynamic_type = "seasonal")   # bivariate poisson
 foot_abilities(fit5, italy_2000_2002)
 
 }

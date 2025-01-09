@@ -7,11 +7,17 @@
 foot_prob(object, data, home_team, away_team)
 }
 \arguments{
-\item{object}{An object either of class \code{\link[rstan]{stanfit}} as given by \code{stan_foot} function or
+\item{object}{An object either of class \code{\link[rstan]{stanfit}} and \code{stanFoot} as given by \code{stan_foot} function or
 \code{\link{list}} as given by \code{mle_foot}.}
 
-\item{data}{A data frame, or a matrix containing the following mandatory items: home team, away team,
-home goals, away goals.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
 \item{home_team}{The home team(s) for the predicted matches.}
 
@@ -21,7 +27,9 @@ home goals, away goals.}
 A \code{\link{data.frame}} containing the number of out-of-sample matches specified through the
 argument \code{predict}  passed either in the \code{mle_foot} or in the \code{stan_foot} function.
 For Bayesian Poisson models the function returns also the most likely outcome (mlo) and a posterior
-probability plot for the exact results.
+probability plot for the exact results, where matches are sorted by the degree of favoritism.
+Specifically, matches are ordered from those in which the favorite team has the highest posterior probability
+of winning to those where the underdog is more likely to win.
 }
 \description{
 The function provides a table containing the home win, draw and away win probabilities for a bunch of
@@ -34,17 +42,21 @@ fitted via the \code{mle_foot} the probabilities are computed by simulating from
 }
 \examples{
 \dontrun{
-### predict the last two weeks
-require(tidyverse)
-require(dplyr)
+library(tidyverse)
+library(dplyr)
 
 data("italy")
-italy_2000<- italy \%>\%
+italy_2000 <- italy \%>\%
  dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
  dplyr::filter(Season=="2000")
 
+colnames(italy_2000) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
+
+
 fit <- stan_foot(data = italy_2000,
-                 model="double_pois", predict =18)  # double pois
+                 model="double_pois",
+                 predict = 18)  # double pois
 
 foot_prob(fit, italy_2000, "Inter",
           "Bologna FC")
