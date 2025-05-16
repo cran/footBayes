@@ -1,0 +1,117 @@
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+# footBayes <img src="man/figures/logo.png" width = 180 align="right" />
+
+[![CRAN Version](https://www.r-pkg.org/badges/version/footBayes)](https://cran.r-project.org/package=footBayes)
+![Dev Version](https://img.shields.io/badge/Development%20Version-2.0.0-brightgreen?style=flat&color=blue)
+[![R-CMD-check.yaml](https://github.com/LeoEgidi/footBayes/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/LeoEgidi/footBayes/actions/workflows/R-CMD-check.yaml)
+[![Codecov test coverage](https://codecov.io/gh/LeoEgidi/footBayes/graph/badge.svg)](https://app.codecov.io/gh/LeoEgidi/footBayes)
+[![Downloads](https://cranlogs.r-pkg.org/badges/footBayes?color=brightgreen)](https://CRAN.R-project.org/package=footBayes)
+
+The goal of `footBayes` is to propose a complete workflow to:
+
+-   Fit the most well-known football models, including the double Poisson, bivariate Poisson, Skellam, and Student‑t distributions. It supports both maximum likelihood estimation (MLE) and Bayesian inference. For Bayesian methods, it incorporates several techniques: MCMC sampling with Hamiltonian Monte Carlo, variational inference using either the Pathfinder algorithm or Automatic Differentiation Variational Inference (ADVI), and the Laplace approximation.
+
+-   Visualize the teams' abilities, the model checks, the rank-league reconstruction;
+
+-   Predict out-of-sample matches.
+
+## Installation
+
+Starting with version **2.0.0**, `footBayes` package requires installing the R package [`cmdstanr`](https://mc-stan.org/cmdstanr/) (not available on CRAN) and the command-line interface to Stan: [`CmdStan`](https://mc-stan.org/users/interfaces/cmdstan.html). 
+For a step-by-step installation, please follow the instructions provided in [Getting started with CmdStanR](https://mc-stan.org/cmdstanr/articles/cmdstanr.html).
+
+
+You can install the released version of `footBayes` from CRAN with:
+
+``` r
+install.packages("footBayes", type = "source")
+```
+
+Please note that it is important to set `type = "source"`. Otherwise,
+the ‘CmdStan’ models in the package may not be compiled during
+installation.
+
+Alternatively to CRAN, you can install the development version from
+GitHub with:
+
+``` r
+# install.packages("devtools")
+devtools::install_github("leoegidi/footBayes")
+```
+
+## Example
+
+In what follows, a quick example to fit a Bayesian double Poisson model
+for the Italian Serie A (seasons 2000-2001, 2001-2002, 2002-2003),
+visualize the estimated teams’ abilities, and predict the last four
+match days for the season 2002-2003:
+
+``` r
+library(footBayes)
+library(dplyr)
+```
+
+
+``` r 
+# Dataset for Italian Serie A
+data("italy")
+italy <- as_tibble(italy)
+italy_2000_2002 <- italy %>%
+  dplyr::select(Season, home, visitor, hgoal, vgoal) %>%
+  filter(Season == "2000" | Season == "2001" | Season == "2002")
+
+colnames(italy_2000_2002) <- c("periods",
+                               "home_team",
+                               "away_team",
+                               "home_goals",
+                               "away_goals")
+
+# Double poisson fit (predict last 4 match-days)
+fit1 <- stan_foot(data = italy_2000_2002,
+                  model = "double_pois",
+                  predict = 36,
+                  iter_sampling = 200,
+                  chains = 2) 
+```
+
+
+The results (i.e., attack and defense effects) can be investigated using
+``` r 
+print(fit1, pars = c("att", "def"))
+```
+
+To visually investigate the attack and defense effects, we
+can use the `foot_abilities` function
+``` r 
+foot_abilities(fit1, italy_2000_2002) # teams abilities
+```
+
+<img src="man/figures/readme_foot_abilities.png" width="80%" style="display: block; margin: auto;" />
+
+To check the adequacy of the Bayesian model the function `pp_foot` provides posterior predictive plots
+``` r 
+pp_foot(fit1, italy_2000_2002) # pp checks
+```
+<img src="man/figures/readme_pp_foot.png" width="80%" style="display: block; margin: auto;" />
+
+
+Furthermore, the function `foot_rank` shows the final rank table and the plot with the predicted points
+``` r 
+foot_rank(fit1, italy_2000_2002) # rank league reconstruction
+```
+
+<img src="man/figures/readme_foot_rank.png" width="80%" style="display: block; margin: auto;" />
+
+
+In order to analyze the possible outcomes of the predicted matches, the function `foot_prob` provides a table containing the home win, draw and away win probabilities for the out-of-sample matches
+``` r 
+foot_prob(fit1, italy_2000_2002) # out-of-sample posterior pred. probabilities
+```
+
+<img src="man/figures/readme_foot_prob.png" width="80%" style="display: block; margin: auto;" />
+
+
+
+For more and more technical details and references, see the vignette!

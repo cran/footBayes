@@ -4,50 +4,104 @@
 \alias{mle_foot}
 \title{Fit football models with Maximum Likelihood}
 \usage{
-mle_foot(data, model, predict, ...)
+mle_foot(
+  data,
+  model,
+  predict = 0,
+  maxit = 1000,
+  method = "BFGS",
+  interval = "profile",
+  hessian = FALSE,
+  sigma_y = 1
+)
 }
 \arguments{
-\item{data}{A data frame, or a matrix containing the following mandatory items: season, home team, away team,
-home goals, away goals.}
+\item{data}{A data frame containing match data with columns:
+\itemize{
+  \item \code{periods}:  Time point of each observation (integer >= 1).
+  \item \code{home_team}: Home team's name (character string).
+  \item \code{away_team}: Away team's name (character string).
+  \item \code{home_goals}: Goals scored by the home team (integer >= 0).
+  \item \code{away_goals}: Goals scored by the away team (integer >= 0).
+}}
 
-\item{model}{The type of model used to fit the data.
-One among the following: \code{"double_pois"},
-\code{"biv_pois"}, \code{"skellam"}, \code{"student_t"}.}
+\item{model}{A character specifying the model to fit. Options are:
+\itemize{
+  \item \code{"double_pois"}: Double Poisson model.
+  \item \code{"biv_pois"}: Bivariate Poisson model.
+  \item \code{"skellam"}: Skellam model.
+  \item \code{"student_t"}: Student's t model.
+  }}
 
-\item{predict}{The number of out-of-sample matches. If missing, the function returns
-the fit for the training set only.}
+\item{predict}{An integer specifying the number of out-of-sample matches for prediction. If missing, the function fits the model to the entire dataset without making predictions.}
 
-\item{...}{Optional arguments for MLE fit algorithms.}
+\item{maxit}{An integer specifying the maximum number of optimizer iterations  default is 1000).}
+
+\item{method}{A character specifying the optimization method. Options are
+  \itemize{
+    \item \code{"Nelder-Mead"}.
+    \item \code{"BFGS"} (default).
+    \item \code{"CG"}.
+    \item \code{"L-BFGS-B"}.
+    \item \code{"SANN"}.
+    \item \code{"Brent"}.
+  }
+For further details see \code{{optim}} function in \code{\link[stats]{stats}} package.}
+
+\item{interval}{A character specifying the interval type for confidence intervals. Options are
+\itemize{
+  \item \code{"profile"} (default).
+  \item \code{"Wald"}.
+  }}
+
+\item{hessian}{A logical value indicating to include the computation of the Hessian (default FALSE).}
+
+\item{sigma_y}{A positive numeric value indicating the scale parameter for Student t likelihood (default 1).}
 }
 \value{
-MLE and 95\% profile likelihood deviance confidence intervals for the
-model's parameters: attack, defence, home effect and goals' correlation.
+A named list containing:
+\itemize{
+  \item{\code{att}}: A matrix of attack ratings, with MLE and 95\% confidence intervals (for \code{"double_pois"}, \code{"biv_pois"} and \code{"skellam"} models).
+  \item{\code{def}}: A matrix of defence ratings, with MLE and 95\% confidence intervals (for \code{"double_pois"}, \code{"biv_pois"} and \code{"skellam"} models).
+  \item{\code{abilities}}: A matrix of combined ability, with MLE and 95\% confidence intervals (for \code{"student_t"} only).
+  \item{\code{home_effect}}: A matrix with with MLE and 95\% confidence intervals for the home effect estimate.
+  \item{\code{corr}}: A matrix with MLE and 95\% confidence intervals for the bivariate Poisson correlation parameter (for \code{"biv_pois"} only).
+  \item{\code{model}}: The name of the fitted model (character).
+  \item{\code{predict}}: The number of out-of-sample matches used for prediction (integer).
+  \item{\code{sigma_y}}: The scale parameter used in the Student t likelihood (for \code{"student_t"} only).
+  \item{\code{team1_prev}}: Integer indices of home teams in the out-of-sample matches (if \code{predict > 0}).
+  \item{\code{team2_prev}}: Integer indices of away teams in the out-of-sample matches (if \code{predict > 0}).
+  \item{\code{logLik}}: The maximized log likelihood (numeric).
+  \item{\code{aic}}: Akaike Information Criterion (numeric).
+  \item{\code{bic}}: Bayesian Information Criterion (numeric).
+}
 }
 \description{
-ML football modelling for the most famous models:
-double Poisson, bivariate Poisson, Skellam and student t.
+Fits football goal-based models using maximum likelihood estimation.
+Supported models include: double Poisson, bivariate Poisson, Skellam, and Student's t.
 }
 \details{
-See documentation of \code{stan_foot} function for model details.
 MLE can be obtained only for static models, with no time-dependence.
 Likelihood optimization is performed via the \code{BFGS} method
-of the \code{\link{optim}} function.
+of the \code{{optim}} function in \code{\link[stats]{stats}} package.
 }
 \examples{
 \dontrun{
-require(tidyverse)
-require(dplyr)
+library(dplyr)
 
 data("italy")
 italy <- as_tibble(italy)
-italy_2008<- italy \%>\%
-   dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
-   dplyr::filter( Season=="2008")
+italy_2000_2002 <- italy \%>\%
+  dplyr::select(Season, home, visitor, hgoal, vgoal) \%>\%
+  dplyr::filter(Season == "2000" | Season == "2001" | Season == "2002")
 
-mle_fit <- mle_foot(data  = italy_2008,
-                   model = "double_pois")
+colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
+mle_fit <- mle_foot(
+  data = italy_2000_2002,
+  model = "double_pois"
+)
 }
-
 
 }
 \references{
@@ -71,5 +125,5 @@ of football match outcomes with estimation of the
 evolution variance parameter. IMA Journal of Management Mathematics, 22(2), 99-113.
 }
 \author{
-Leonardo Egidi \email{legidi@units.it}
+Leonardo Egidi \email{legidi@units.it} and Roberto Macrì Demartino \email{roberto.macridemartino@deams.units.it}
 }

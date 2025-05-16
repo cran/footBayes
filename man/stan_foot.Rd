@@ -2,7 +2,7 @@
 % Please edit documentation in R/stan_foot.R
 \name{stan_foot}
 \alias{stan_foot}
-\title{Fit football models  with Stan}
+\title{Fit football models using CmdStan}
 \usage{
 stan_foot(
   data,
@@ -15,6 +15,7 @@ stan_foot(
   home_effect = TRUE,
   norm_method = "none",
   ranking_map = NULL,
+  method = "MCMC",
   ...
 )
 }
@@ -32,6 +33,7 @@ stan_foot(
 \itemize{
   \item \code{"double_pois"}: Double Poisson model.
   \item \code{"biv_pois"}: Bivariate Poisson model.
+  \item \code{"neg_bin"}: Negative Binomial model.
   \item \code{"skellam"}: Skellam model.
   \item \code{"student_t"}: Student's t model.
   \item \code{"diag_infl_biv_pois"}: Diagonal-inflated bivariate Poisson model.
@@ -74,21 +76,30 @@ stan_foot(
 
 \item{ranking_map}{An optional vector mapping ranking periods to data periods. If not provided and the number of ranking periods matches the number of data periods, a direct mapping is assumed.}
 
-\item{...}{Optional parameters passed to \code{\link[rstan]{stan}} (e.g., \code{iter}, \code{chains}, \code{cores}, \code{control}).}
+\item{method}{A character string specifying the method used to obtain the Bayesian estimates. Options are:
+\itemize{
+  \item \code{"MCMC"}: Markov chain Monte Carlo algorithm (default).
+  \item \code{"VI"}: Automatic differentiation variational inference algorithms.
+  \item \code{"pathfinder"}: Pathfinder variational inference algorithm.
+  \item \code{"laplace"}: Laplace algorithm.
+}}
+
+\item{...}{Additional arguments passed to \code{\link[cmdstanr]{cmdstanr}} (e.g., \code{iter_sampling}, \code{chains}, \code{parallel_chains}).}
 }
 \value{
-A list of class \code{"stanFoot"} containing:
+An object of class \code{"stanFoot"}, which is a list containing:
   \itemize{
-    \item \code{fit}: The fitted \code{stanfit} object returned by \code{\link[rstan]{stan}}.
+    \item \code{fit}: The \code{CmdStanFit} object returned by \code{\link[cmdstanr]{cmdstanr}}.
     \item \code{data}: The input data.
-    \item \code{stan_data}: The data list for Stan.
+    \item \code{stan_data}: The data list passed to Stan.
     \item \code{stan_code}: The Stan code of the underline model.
-    \item \code{stan_args}: The optional parameters passed to (\code{...}).
+    \item \code{stan_args}: The optional \code{\link[cmdstanr]{cmdstanr}} parameters passed to (\code{...}).
+    \item \code{alg_method}: The inference algorithm used to obtain the Bayesian estimates.
   }
 }
 \description{
-Stan football modelling for the most famous models:
-double Poisson, bivariate Poisson, Skellam, student t, diagonal-inflated bivariate Poisson and zero-inflated Skellam.
+Fits football goal-based models using Stan via the CmdStan backend.
+Supported models include: double Poisson, bivariate Poisson, Skellam, Student's t, diagonal-inflated bivariate Poisson, zero-inflated Skellam, and negative Binomial.
 }
 \details{
 Let \eqn{(y^{H}_{n}, y^{A}_{n})} denote the
@@ -118,8 +129,8 @@ respectively. Attack/defence parameters are imposed a
 sum-to-zero constraint to achieve identifiability and
 assigned some weakly-informative prior distributions:
 
-\deqn{att_T \sim \mathcal{N}(\mu_{att}, \sigma_{att})}
-\deqn{def_T \sim \mathcal{N}(\mu_{def}, \sigma_{def}),}
+\deqn{att_T \sim \mathrm{N}(\mu_{att}, \sigma_{att})}
+\deqn{def_T \sim \mathrm{N}(\mu_{def}, \sigma_{def}),}
 
 with hyperparameters \eqn{\mu_{att}, \sigma_{att}, \mu_{def}, \sigma_{def}}.
 
@@ -139,7 +150,7 @@ use a student t distribution with 7 degrees of
 freedom (Gelman, 2014):
 
 \deqn{y^{H}_{n}- y^{A}_{n} \sim t(7, ab_{h_{n}}-ab_{a(n)}, \sigma_y)}
-\deqn{ab_t \sim \mathcal{N}(\mu + b \times {prior\_score}_t, sigma_{ab}),}
+\deqn{ab_t \sim \mathrm{N}(\mu + b \times {prior\_score}_t, sigma_{ab}),}
 
 where \eqn{ab_t} is the overall ability for
 the \eqn{t}-th team, whereas \eqn{prior\_score_t}
@@ -148,19 +159,19 @@ ranking).
 
 These model rely on the assumption of static parameters.
 However, we could assume dynamics in the attach/defence
-abilities (Owen, 2011; Egidi et al., 2018) in terms of weeks or seasons through the argument
+abilities (Owen, 2011; Egidi et al., 2018, Macrì Demartino et al., 2024) in terms of weeks or seasons through the argument
 \code{dynamic_type}. In such a framework, for a given
 number of times \eqn{1, \ldots, \mathcal{T}}, the models
 above would be unchanged, but the priors for the abilities
 parameters at each time \eqn{\tau, \tau=2,\ldots, \mathcal{T},} would be:
 
-\deqn{att_{T, \tau} \sim \mathcal{N}({att}_{T, \tau-1}, \sigma_{att})}
-\deqn{def_{T, \tau} \sim \mathcal{N}({def}_{T, \tau-1}, \sigma_{def}),}
+\deqn{att_{T, \tau} \sim \mathrm{N}({att}_{T, \tau-1}, \sigma_{att})}
+\deqn{def_{T, \tau} \sim \mathrm{N}({def}_{T, \tau-1}, \sigma_{def}),}
 
 whereas for \eqn{\tau=1} we have:
 
-\deqn{att_{T, 1} \sim \mathcal{N}(\mu_{att}, \sigma_{att})}
-\deqn{def_{T, 1} \sim \mathcal{N}(\mu_{def}, \sigma_{def}).}
+\deqn{att_{T, 1} \sim \mathrm{N}(\mu_{att}, \sigma_{att})}
+\deqn{def_{T, 1} \sim \mathrm{N}(\mu_{def}, \sigma_{def}).}
 
 Of course, the identifiability constraint must be imposed for
 each time \eqn{\tau}.
@@ -171,119 +182,147 @@ spirit of (Karlis & Ntzoufras, 2003) to better capture draw occurrences. See the
 }
 \examples{
 \dontrun{
-library(dplyr)
+if (instantiate::stan_cmdstan_exists()) {
+  library(dplyr)
+
+  # Example usage with ranking
+  data("italy")
+  italy <- as_tibble(italy)
+  italy_2021 <- italy \%>\%
+    select(Season, home, visitor, hgoal, vgoal) \%>\%
+    filter(Season == "2021")
+
+
+  teams <- unique(italy_2021$home)
+  n_rows <- 20
+
+  # Create fake ranking
+  ranking <- data.frame(
+    periods = rep(1, n_rows),
+    team = sample(teams, n_rows, replace = FALSE),
+    rank_points = sample(0:60, n_rows, replace = FALSE)
+  )
+
+  ranking <- ranking \%>\%
+    arrange(periods, desc(rank_points))
+
+
+  colnames(italy_2021) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+
+  fit_with_ranking <- stan_foot(
+    data = italy_2021,
+    model = "diag_infl_biv_pois",
+    ranking = ranking,
+    home_effect = TRUE,
+    prior_par = list(
+      ability = student_t(4, 0, NULL),
+      ability_sd = cauchy(0, 3),
+      home = normal(1, 10)
+    ),
+    norm_method = "mad",
+    iter_sampling = 1000,
+    chains = 2,
+    parallel_chains = 2,
+    adapt_delta = 0.95,
+    max_treedepth = 15
+  )
+
+  # Print a summary of the model fit
+  print(fit_with_ranking, pars = c("att", "def"))
 
 
 
-# Example usage with ranking
-data("italy")
-italy <- as_tibble(italy)
-italy_2021 <- italy \%>\%
-  select(Season, home, visitor, hgoal, vgoal) \%>\%
-  filter(Season == "2021")
+  ### Use Italian Serie A from 2000 to 2002
 
+  data("italy")
+  italy <- as_tibble(italy)
+  italy_2000_2002 <- italy \%>\%
+    dplyr::select(Season, home, visitor, hgoal, vgoal) \%>\%
+    dplyr::filter(Season == "2000" | Season == "2001" | Season == "2002")
 
-teams <- unique(italy_2021$home)
-n_rows <- 20
+  colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
 
-# Create fake ranking
-ranking <- data.frame(
-  periods = rep(1, n_rows),
-  team = sample(teams, n_rows, replace = FALSE),
-  rank_points = sample(0:60, n_rows, replace = FALSE)
-)
+  ### Fit Stan models
+  ## no dynamics, no predictions
 
-ranking <- ranking \%>\%
-  arrange(periods, desc(rank_points))
+  fit_1 <- stan_foot(
+    data = italy_2000_2002,
+    model = "double_pois"
+  ) # double poisson
+  print(fit_1, pars = c(
+    "home", "sigma_att",
+    "sigma_def"
+  ))
 
+  fit_2 <- stan_foot(
+    data = italy_2000_2002,
+    model = "biv_pois"
+  ) # bivariate poisson
+  print(fit_2, pars = c(
+    "home", "rho",
+    "sigma_att", "sigma_def"
+  ))
 
-colnames(italy_2021) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+  fit_3 <- stan_foot(
+    data = italy_2000_2002,
+    mode = "skellam"
+  ) # skellam
+  print(fit_3, pars = c(
+    "home", "sigma_att",
+    "sigma_def"
+  ))
 
-fit_with_ranking <- stan_foot(
-  data = italy_2021
-  model = "diag_infl_biv_pois",
-  ranking = ranking,
-  home_effect = TRUE,
-  prior_par = list(
-    ability = student_t(4, 0, NULL),
-    ability_sd = cauchy(0, 3),
-    home = normal(1, 10)
-  ),
-  norm_method = "mad",
-  iter = 1000,
-  chains = 2,
-  cores = 2,
-  control = list(adapt_delta = 0.95, max_treedepth = 15)
-)
+  fit_4 <- stan_foot(
+    data = italy_2000_2002,
+    model = "student_t"
+  ) # student_t
+  print(fit_4, pars = c("beta"))
 
-# Print a summary of the model fit
-print(fit_with_ranking, pars = c("att","def"))
+  ## seasonal dynamics, no prediction
 
+  fit_5 <- stan_foot(
+    data = italy_2000_2002,
+    model = "double_pois",
+    dynamic_type = "seasonal"
+  ) # double poisson
+  print(fit_5, pars = c(
+    "home", "sigma_att",
+    "sigma_def"
+  ))
 
+  ## seasonal dynamics, prediction for the last season
 
-### Use Italian Serie A from 2000 to 2002
+  fit_6 <- stan_foot(
+    data = italy_2000_2002,
+    model = "double_pois",
+    dynamic_type = "seasonal",
+    predict = 170
+  ) # double poisson
+  print(fit_6, pars = c(
+    "home", "sigma_att",
+    "sigma_def"
+  ))
 
-data("italy")
-italy <- as_tibble(italy)
-italy_2000_2002<- italy \%>\%
- dplyr::select(Season, home, visitor, hgoal,vgoal) \%>\%
- dplyr::filter(Season=="2000" |  Season=="2001"| Season=="2002")
+  ## other priors' options
+  # double poisson with
+  # student_t priors for teams abilities
+  # and laplace prior for the hyper sds
 
-colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
+  fit_p <- stan_foot(
+    data = italy_2000_2002,
+    model = "double_pois",
+    prior_par = list(
+      ability = student_t(4, 0, NULL),
+      ability_sd = laplace(0, 1),
+      home = normal(1, 10)
+    )
+  )
 
-### Fit Stan models
-## no dynamics, no predictions
-
-fit_1 <- stan_foot(data = italy_2000_2002,
-                  model = "double_pois") # double poisson
-print(fit_1, pars = c("home", "sigma_att",
-                    "sigma_def"))
-
-fit_2 <- stan_foot(data = italy_2000_2002,
-                  model = "biv_pois")    # bivariate poisson
-print(fit_2, pars = c("home", "rho",
-                    "sigma_att", "sigma_def"))
-
-fit_3 <- stan_foot(data = italy_2000_2002,
-                  mode ="skellam")     # skellam
-print(fit_3, pars = c("home", "sigma_att",
-                    "sigma_def"))
-
-fit_4 <- stan_foot(data = italy_2000_2002,
-                  model = "student_t")   # student_t
-print(fit_4, pars = c("beta"))
-
-## seasonal dynamics, no prediction
-
-fit_5 <- stan_foot(data = italy_2000_2002,
-                  model = "double_pois",
-                  dynamic_type = "seasonal") # double poisson
-print(fit_5, pars = c("home", "sigma_att",
-                    "sigma_def"))
-
-## seasonal dynamics, prediction for the last season
-
-fit_6 <- stan_foot(data = italy_2000_2002,
-                  model = "double_pois",
-                  dynamic_type = "seasonal",
-                  predict = 170) # double poisson
-print(fit_6, pars = c("home", "sigma_att",
-                    "sigma_def"))
-
-## other priors' options
-# double poisson with
-# student_t priors for teams abilities
-# and laplace prior for the hyper sds
-
-fit_p <- stan_foot(data = italy_2000_2002,
-                   model = "double_pois",
-                   prior_par = list(ability = student_t(4, 0, NULL),
-                                    ability_sd = laplace(0,1),
-                                    home = normal(1, 10)
-                                    ))
-
-print(fit_p,  pars = c("home", "sigma_att",
-                    "sigma_def"))
+  print(fit_p, pars = c(
+    "home", "sigma_att",
+    "sigma_def"
+  ))
+}
 }
 }
 \references{
@@ -296,6 +335,9 @@ and bookmakers' odds in modelling football scores. Statistical Modelling, 18(5-6
 Gelman, A. (2014). Stan goes to the World Cup. From
 "Statistical Modeling, Causal Inference, and Social Science" blog.
 
+Macrì Demartino, R., Egidi, L. and Torelli, N. Alternative ranking measures to predict
+international football results. Computational Statistics (2024), 1-19.
+
 Karlis, D. and Ntzoufras, I. (2003). Analysis of sports data by using bivariate poisson models.
 Journal of the Royal Statistical Society: Series D (The Statistician) 52(3), 381-393.
 
@@ -307,5 +349,5 @@ of football match outcomes with estimation of the
 evolution variance parameter. IMA Journal of Management Mathematics, 22(2), 99-113.
 }
 \author{
-Leonardo Egidi \email{legidi@units.it}, Roberto Macrì Demartino \email{roberto.macridemartino@phd.unipd.it}, and Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
+Leonardo Egidi \email{legidi@units.it}, Roberto Macrì Demartino \email{roberto.macridemartino@deams.units.it}, and Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
 }
