@@ -16,34 +16,43 @@ data {
   }
 
   parameters {
-      matrix[ntimes_rank, nteams] logStrength;     // Log strength parameters for each team over time
+      matrix[ntimes_rank, nteams] logStrength_raw;     // Log strength parameters for each team over time
       real logTie;               // Log tie parameter
       real home;                  // Home team effect parameter
   }
 
   transformed parameters {
       real adj_h_eff;
+      matrix[ntimes_rank, nteams] logStrength;
+
+
+      // Sum-to-zero constraint for log-strength parameters
+      logStrength[1]=logStrength_raw[1]-mean(logStrength_raw[1]);
+      for (t in 2:ntimes_rank){
+        logStrength[t]=logStrength_raw[t]-mean(logStrength_raw[t]);
+      }
+
       adj_h_eff = home * ind_home;
   }
 
   model {
       // Priors for initial strengths
       for (k in 1:nteams) {
-          logStrength[1, k] ~ normal(mean_logStrength, sd_logStrength);
+          target+=normal_lpdf(logStrength[1, k]| mean_logStrength, sd_logStrength);
       }
 
       // Prior for tie parameter
-      logTie ~ normal(mean_logTie, sd_logTie);
+      target+=normal_lpdf(logTie|mean_logTie, sd_logTie);
 
       // AR(1) process for strength parameters
       for (t_idx in 2:ntimes_rank) {
           for (k in 1:nteams) {
-              logStrength[t_idx, k] ~ normal(logStrength[t_idx - 1, k], sd_logStrength);
+             target+=normal_lpdf(logStrength_raw[t_idx, k]|logStrength_raw[t_idx - 1, k], sd_logStrength);
           }
       }
 
       // Prior for the home effect
-      home ~ normal(mean_home, sd_home);
+      target+=normal_lpdf(home|mean_home, sd_home);
 
       // Likelihood
       for (n in 1:N) {

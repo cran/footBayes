@@ -16,7 +16,8 @@ pp_foot(object, data, type = "aggregated", coverage = 0.95)
   \item \code{away_team}: Away team's name (character string).
   \item \code{home_goals}: Goals scored by the home team (integer >= 0).
   \item \code{away_goals}: Goals scored by the away team (integer >= 0).
-}}
+}
+If the model was fitted with \code{predict > 0}, the in-sample matches are used.}
 
 \item{type}{Type of plots, one among \code{"aggregated"} or \code{"matches"}. Default is \code{"aggregated"}.}
 
@@ -28,7 +29,7 @@ A list with elements:
   \item{\code{pp_plot}}: A \code{ggplot} object for the selected \code{type} of plot.
   \item{\code{pp_table}}: A data frame of summary statistics:
     \itemize{
-      \item For \code{"aggregated"}: Goal differences and their Bayesian p‑values.
+      \item For \code{"aggregated"}: Goal differences and their Bayesian p-values.
       \item For \code{"matches"}: Nominal \code{1-alpha} and observed empirical Bayesian coverage.
     }
 }
@@ -41,7 +42,7 @@ returned by the \code{stan_foot} function.
 Posterior predictive plots: when \code{"aggregated"} (default) is selected, the function
 returns a frequency plot for some pre-selected goal-difference values,
 along with their correspondent Bayesian p-values, computed as
-\eqn{Pr(y_rep \ge y)|y)}, where \eqn{y_rep} is a data replication from the
+\eqn{Pr(y_{rep} \ge y)|y)}, where \eqn{y_{rep}} is a data replication from the
 posterior predictive distribution (more details in Gelman et al., 2013).
 Bayesian p-values very close to 0 or 1 could exhibit
 possible model misfits.

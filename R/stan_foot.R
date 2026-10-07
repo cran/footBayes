@@ -1,7 +1,7 @@
 #' Fit football models using CmdStan
 #'
 #' Fits football goal-based models using Stan via the CmdStan backend.
-#' Supported models include: double Poisson, bivariate Poisson, Skellam, Student's t, diagonal-inflated bivariate Poisson, zero-inflated Skellam, and negative Binomial.
+#' Supported models include: double Poisson, bivariate Poisson, Dixon-Coles, Skellam, Student's t, diagonal-inflated bivariate Poisson, zero-inflated Skellam, and negative Binomial.
 #'
 #' @param data A data frame containing match data with columns:
 #'   \itemize{
@@ -15,6 +15,7 @@
 #'   \itemize{
 #'     \item \code{"double_pois"}: Double Poisson model.
 #'     \item \code{"biv_pois"}: Bivariate Poisson model.
+#'     \item \code{"dixon_coles"}: Dixon-Coles model.
 #'     \item \code{"neg_bin"}: Negative Binomial model.
 #'     \item \code{"skellam"}: Skellam model.
 #'     \item \code{"student_t"}: Student's t model.
@@ -28,15 +29,43 @@
 #'     \item \code{team}: Team names matching those in \code{data} (character string).
 #'     \item \code{rank_points}: Ranking points for each team (numeric).
 #'   }
+#'   The ranking points are matched to the teams of \code{data} by name, so the order of the rows does
+#'   not matter. Every team of \code{data} must have exactly one value in each ranking period; teams of
+#'   the ranking that are not in \code{data} are ignored.
 #' @param dynamic_type A character string specifying the type of dynamics in the model. Options are:
 #'   \itemize{
 #'     \item \code{"weekly"}: Weekly dynamic parameters.
 #'     \item \code{"seasonal"}: Seasonal dynamic parameters.
 #'   }
+#' @param dynamic_weight A logical value indicating whether to fit the weighted dynamic model of
+#'   Macrì Demartino, Egidi and Torelli (2026), where the evolution of the attack and defence abilities
+#'   is governed by team- and period-specific commensurate priors with spike-and-slab hyperpriors
+#'   (default \code{FALSE}). It requires \code{dynamic_type} and a normal prior for the abilities
+#'   (\code{prior_par$ability = normal(...)}), and it is not available for the
+#'   \code{"student_t"} model. See Details.
+#' @param dynamic_par A list of options for the evolution variance of the dynamic models
+#'   (ignored when \code{dynamic_type} is missing). Elements:
+#'   \itemize{
+#'     \item \code{common_sd}: A logical value. If \code{TRUE}, attack and defence abilities share a single
+#'       evolution standard deviation (\code{sigma_common}), as in Owen (2011). If \code{FALSE} (default),
+#'       separate standard deviations \code{sigma_att} and \code{sigma_def} are estimated, as in Egidi et al. (2018).
+#'     \item \code{kl_variance}: A logical value. If \code{TRUE}, the evolution variance is inflated in the
+#'       periods that follow a summer break, as in Koopman and Lit (2015). Default \code{FALSE}.
+#'       It requires \code{dynamic_type = "seasonal"} and more than \code{periods_per_season} training periods.
+#'     \item \code{periods_per_season}: An integer (>= 2) giving the number of consecutive values of the
+#'       \code{periods} column that form one season. Used only when \code{kl_variance = TRUE}.
+#'       Default \code{2} (each season split into two halves).
+#'     \item \code{spike}: Half-normal prior \code{normal(location, scale)} for the spike component of the
+#'       commensurate precisions, used when \code{dynamic_weight = TRUE}. Default \code{normal(9, 1.5)}.
+#'     \item \code{slab}: Half-normal prior \code{normal(location, scale)} for the slab component of the
+#'       commensurate precisions, used when \code{dynamic_weight = TRUE}. Default \code{normal(0, 3)}.
+#'   }
+#'   The options \code{common_sd = TRUE}, \code{kl_variance = TRUE} and \code{dynamic_weight = TRUE}
+#'   are mutually exclusive.
 #' @param prior_par A list specifying the prior distributions for the parameters of interest:
 #'   \itemize{
-#'     \item \code{ability}: Prior distribution for team-specific abilities. Possible distributions are \code{normal}, \code{student_t}, \code{cauchy}, \code{laplace}. Default is \code{normal(0, NULL)}.
-#'     \item \code{ability_sd}:  Prior distribution for the team-specific standard deviations. See the \code{prior} argument for more details. Default is \code{cauchy(0, 5)}.
+#'     \item \code{ability}: Prior distribution for team-specific abilities. Possible distributions are \code{normal}, \code{student_t}, \code{cauchy}, \code{laplace}. Default is \code{normal(0, NULL)}. In the dynamic models the prior is the distribution of the period-to-period increments of the abilities; with \code{dynamic_weight = TRUE} only \code{normal} is allowed. For \code{student_t}, \code{cauchy} and \code{laplace} the evolution standard deviations are scale parameters, not standard deviations of the increments.
+#'     \item \code{ability_sd}:  Prior distribution for the team-specific standard deviations. Possible distributions are \code{normal}, \code{student_t}, \code{cauchy}, \code{laplace}. Default is \code{cauchy(0, 5)}.
 #'     \item \code{home}: Prior distribution for the home effect (\code{home}). Applicable only if \code{home_effect = TRUE}. Only normal priors are allowed. Default is \code{normal(0, 5)}.
 #'   }
 #'
@@ -45,7 +74,7 @@
 #' @param norm_method A character string specifying the method used to normalize team-specific ranking points. Options are:
 #'   \itemize{
 #'     \item \code{"none"}: No normalization (default).
-#'     \item \code{"standard"}: Standardization (mean 0, standard deviation 1).
+#'     \item \code{"standard"}: Standardization to mean 0 and standard deviation 0.5, i.e. the points minus their mean, divided by twice their standard deviation.
 #'     \item \code{"mad"}: Median Absolute Deviation normalization.
 #'     \item \code{"min_max"}: Min-max scaling to [0,1].
 #'   }
@@ -103,6 +132,23 @@
 #'
 #' with hyperparameters \eqn{\mu_{att}, \sigma_{att}, \mu_{def}, \sigma_{def}}.
 #'
+#' The Dixon and Coles (1997) model keeps the two scoring rates
+#' \eqn{\lambda_{1n}, \lambda_{2n}} of the double Poisson model but
+#' multiplies the joint probability of low-scoring results by a
+#' dependence factor \eqn{\tau} to better capture the observed
+#' correlation in the \eqn{0\text{-}0, 1\text{-}0, 0\text{-}1} and
+#' \eqn{1\text{-}1} outcomes:
+#'
+#' \deqn{P(Y^H_n = y^H_n, Y^A_n = y^A_n) = \tau_{\lambda_{1n}, \lambda_{2n}}(y^H_n, y^A_n) \, \mathsf{Poisson}(y^H_n | \lambda_{1n}) \, \mathsf{Poisson}(y^A_n | \lambda_{2n}),}
+#'
+#' where
+#'
+#' \deqn{\tau_{\lambda_1, \lambda_2}(y^H, y^A) = \begin{cases} 1 - \lambda_1 \lambda_2 \rho & y^H = y^A = 0 \\ 1 + \lambda_1 \rho & y^H = 0, y^A = 1 \\ 1 + \lambda_2 \rho & y^H = 1, y^A = 0 \\ 1 - \rho & y^H = y^A = 1 \\ 1 & \text{otherwise,} \end{cases}}
+#'
+#' and \eqn{\rho} is the low-score dependence parameter,
+#' assigned a weakly-informative \eqn{\mathrm{N}(0, 0.1)} prior and
+#' constrained to keep the adjustment factor positive.
+#'
 #' Instead of using the marginal number of goals,
 #' another alternative is to modelling directly
 #' the score difference \eqn{(y^{H}_{n}- y^{A}_{n})}.
@@ -128,7 +174,7 @@
 #'
 #' These model rely on the assumption of static parameters.
 #' However, we could assume dynamics in the attach/defence
-#' abilities (Owen, 2011; Egidi et al., 2018, Macrì Demartino et al., 2024) in terms of weeks or seasons through the argument
+#' abilities (Owen, 2011; Egidi et al., 2018, Macri Demartino et al., 2024) in terms of weeks or seasons through the argument
 #' \code{dynamic_type}. In such a framework, for a given
 #' number of times \eqn{1, \ldots, \mathcal{T}}, the models
 #' above would be unchanged, but the priors for the abilities
@@ -145,9 +191,47 @@
 #' Of course, the identifiability constraint must be imposed for
 #' each time \eqn{\tau}.
 #'
-#' The current version of the package allows for the fit of a
-#' diagonal-inflated bivariate Poisson and a zero-inflated Skellam model in the
-#' spirit of (Karlis & Ntzoufras, 2003) to better capture draw occurrences. See the vignette for further details.
+#' The evolution standard deviations of the dynamic models can be specified in
+#' four alternative ways, through the arguments \code{dynamic_par} and \code{dynamic_weight}:
+#' \itemize{
+#'   \item Default (Egidi et al., 2018): two distinct standard deviations \eqn{\sigma_{att}} and
+#'     \eqn{\sigma_{def}}, shared by all the teams and periods (parameters \code{sigma_att} and \code{sigma_def}).
+#'   \item \code{dynamic_par = list(common_sd = TRUE)} (Owen, 2011): a single evolution standard
+#'     deviation \eqn{\sigma_{att} = \sigma_{def} = \sigma} (parameter \code{sigma_common}).
+#'   \item \code{dynamic_par = list(kl_variance = TRUE)} (Koopman and Lit, 2015): the evolution variance
+#'     is inflated in the periods that follow a summer break,
+#'     \deqn{\sigma^2_{k,\tau} = \sigma^2_{k} + \sigma^2_{break} \, I_{\tau}, \quad k \in \{att, def\},}
+#'     where \eqn{I_{\tau} = 1} if period \eqn{\tau} follows a summer break and \eqn{0} otherwise.
+#'     The package assumes that each season is made of \code{periods_per_season} consecutive periods
+#'     (default 2, i.e. two half-seasons), so that a summer break precedes the periods
+#'     \eqn{1 + m \, \mathrm{periods\_per\_season}}, \eqn{m = 1, 2, \ldots}
+#'     (parameters \code{sigma_att_kl}, \code{sigma_def_kl} and \code{sigma_break}).
+#'   \item \code{dynamic_weight = TRUE} (Macrì Demartino et al., 2026): weighted dynamic model with
+#'     commensurate priors. For each team \eqn{T}, ability \eqn{k \in \{att, def\}} and period
+#'     \eqn{\tau \ge 2},
+#'     \deqn{k_{T, \tau} \sim \mathrm{N}(k_{T, \tau-1}, 1/\phi_{k, T, \tau}),}
+#'     where the commensurate precision \eqn{\phi_{k, T, \tau}} is assigned a two-component mixture
+#'     of half-normal distributions (spike-and-slab),
+#'     \deqn{\phi_{k, T, \tau} \sim p_T \, \mathrm{N}^{+}(\mu_s, \psi_s) + (1 - p_T) \, \mathrm{N}^{+}(\mu_l, \psi_l), \quad p_T \sim \mathrm{Beta}(1, 1).}
+#'     The spike \eqn{\mathrm{N}^{+}(\mu_s, \psi_s)} is concentrated on large precisions (strong borrowing
+#'     of information from the previous period), whereas the slab \eqn{\mathrm{N}^{+}(\mu_l, \psi_l)} is
+#'     diffuse on small precisions (weak borrowing). The hyperparameters are set through
+#'     \code{dynamic_par$spike} and \code{dynamic_par$slab} (parameters \code{prob_spike},
+#'     \code{comm_prec_att}, \code{comm_prec_def}, \code{comm_sd_att} and \code{comm_sd_def}).
+#' }
+#'
+#' To better capture draw occurrences, the package also allows for the fit of a
+#' diagonal-inflated bivariate Poisson and a zero-inflated Skellam model.
+#' The diagonal-inflated bivariate Poisson model (Karlis & Ntzoufras, 2003) is a mixture
+#' of a bivariate Poisson and a distribution over the draws:
+#'
+#' \deqn{P(Y^H_n = x, Y^A_n = y) = (1 - p) \, \mathsf{BivPoisson}(x, y | \lambda_{1n}, \lambda_{2n}, \lambda_{3n}) + p \, \theta_x \, I(x = y),}
+#'
+#' where \eqn{p} is the probability of the inflation component (parameter \code{prob_of_draws},
+#' with a \eqn{\mathrm{U}(0, 1)} prior) and \eqn{\theta_j}, \eqn{j = 0, \ldots, 3}, is a discrete
+#' distribution over the draws 0-0, 1-1, 2-2 and 3-3 (parameter \code{draw_dist}, with a uniform
+#' Dirichlet prior); draws with more than three goals per team are not inflated.
+#' See the vignette for further details.
 #'
 #' @author Leonardo Egidi \email{legidi@units.it}, Roberto Macrì Demartino \email{roberto.macridemartino@deams.units.it}, and Vasilis Palaskas \email{vasilis.palaskas94@gmail.com}.
 #'
@@ -155,14 +239,30 @@
 #' Baio, G. and Blangiardo, M. (2010). Bayesian hierarchical model for the prediction of football
 #' results. Journal of Applied Statistics 37(2), 253-264.
 #'
+#' Dixon, M. J. and Coles, S. G. (1997). Modelling association football scores
+#' and inefficiencies in the football betting market. Journal of the Royal
+#' Statistical Society: Series C (Applied Statistics), 46(2), 265-280.
+#'
 #' Egidi, L., Pauli, F., and Torelli, N. (2018). Combining historical data
 #' and bookmakers' odds in modelling football scores. Statistical Modelling, 18(5-6), 436-459.
 #'
 #' Gelman, A. (2014). Stan goes to the World Cup. From
 #' "Statistical Modeling, Causal Inference, and Social Science" blog.
 #'
-#' Macrì Demartino, R., Egidi, L. and Torelli, N. Alternative ranking measures to predict
-#' international football results. Computational Statistics (2024), 1-19.
+#' Hobbs, B. P., Carlin, B. P., Mandrekar, S. J. and Sargent, D. J. (2011). Hierarchical commensurate
+#' and power prior models for adaptive incorporation of historical information in clinical trials.
+#' Biometrics, 67(3), 1047-1056.
+#'
+#' Koopman, S. J. and Lit, R. (2015). A dynamic bivariate Poisson model for analysing and
+#' forecasting match results in the English Premier League. Journal of the Royal Statistical
+#' Society: Series A (Statistics in Society), 178(1), 167-186.
+#'
+#' Macrì Demartino, R., Egidi, L. and Torelli, N. (2024). Alternative ranking measures to predict
+#' international football results. Computational Statistics, 1-19.
+#'
+#' Macrì Demartino, R., Egidi, L. and Torelli, N. (2026). Bayesian weighted discrete-time dynamic
+#' models for association football prediction. Journal of the Royal Statistical Society Series C:
+#' Applied Statistics, qlag032. doi:10.1093/jrsssc/qlag032
 #'
 #' Karlis, D. and Ntzoufras, I. (2003). Analysis of sports data by using bivariate poisson models.
 #' Journal of the Royal Statistical Society: Series D (The Statistician) 52(3), 381-393.
@@ -180,167 +280,81 @@
 #' if (instantiate::stan_cmdstan_exists()) {
 #'   library(dplyr)
 #'
-#'   # Example usage with ranking
 #'   data("italy")
 #'   italy <- as_tibble(italy)
-#'   italy_2021 <- italy %>%
+#'
+#'   # Four seasons of the Italian Serie A, each split into two halves
+#'   # (periods 1-8): the summer break precedes periods 3, 5 and 7
+#'   italy_2018_2021 <- italy %>%
 #'     select(Season, home, visitor, hgoal, vgoal) %>%
-#'     filter(Season == "2021")
+#'     filter(Season %in% c("2018", "2019", "2020", "2021")) %>%
+#'     group_by(Season) %>%
+#'     mutate(half = if_else(row_number() <= n() / 2, 1, 2)) %>%
+#'     ungroup() %>%
+#'     mutate(periods = 2 * (as.numeric(Season) - 2018) + half) %>%
+#'     select(periods,
+#'       home_team = home, away_team = visitor,
+#'       home_goals = hgoal, away_goals = vgoal
+#'     )
 #'
-#'
-#'   teams <- unique(italy_2021$home)
-#'   n_rows <- 20
-#'
-#'   # Create fake ranking
-#'   ranking <- data.frame(
-#'     periods = rep(1, n_rows),
-#'     team = sample(teams, n_rows, replace = FALSE),
-#'     rank_points = sample(0:60, n_rows, replace = FALSE)
-#'   )
-#'
-#'   ranking <- ranking %>%
-#'     arrange(periods, desc(rank_points))
-#'
-#'
-#'   colnames(italy_2021) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
-#'
-#'   fit_with_ranking <- stan_foot(
-#'     data = italy_2021,
-#'     model = "diag_infl_biv_pois",
-#'     ranking = ranking,
-#'     home_effect = TRUE,
-#'     prior_par = list(
-#'       ability = student_t(4, 0, NULL),
-#'       ability_sd = cauchy(0, 3),
-#'       home = normal(1, 10)
-#'     ),
-#'     norm_method = "mad",
+#'   # Koopman & Lit (2015): variance inflation at the summer breaks
+#'   fit_kl <- stan_foot(
+#'     data = italy_2018_2021,
+#'     model = "biv_pois",
+#'     dynamic_type = "seasonal",
+#'     dynamic_par = list(kl_variance = TRUE, periods_per_season = 2),
 #'     iter_sampling = 1000,
-#'     chains = 2,
-#'     parallel_chains = 2,
-#'     adapt_delta = 0.95,
-#'     max_treedepth = 15
+#'     chains = 4,
+#'     parallel_chains = 4
 #'   )
+#'   print(fit_kl, pars = c("sigma_att_kl", "sigma_def_kl", "sigma_break"))
 #'
-#'   # Print a summary of the model fit
-#'   print(fit_with_ranking, pars = c("att", "def"))
-#'
-#'
-#'
-#'   ### Use Italian Serie A from 2000 to 2002
-#'
-#'   data("italy")
-#'   italy <- as_tibble(italy)
-#'   italy_2000_2002 <- italy %>%
-#'     dplyr::select(Season, home, visitor, hgoal, vgoal) %>%
-#'     dplyr::filter(Season == "2000" | Season == "2001" | Season == "2002")
-#'
-#'   colnames(italy_2000_2002) <- c("periods", "home_team", "away_team", "home_goals", "away_goals")
-#'
-#'   ### Fit Stan models
-#'   ## no dynamics, no predictions
-#'
-#'   fit_1 <- stan_foot(
-#'     data = italy_2000_2002,
-#'     model = "double_pois"
-#'   ) # double poisson
-#'   print(fit_1, pars = c(
-#'     "home", "sigma_att",
-#'     "sigma_def"
-#'   ))
-#'
-#'   fit_2 <- stan_foot(
-#'     data = italy_2000_2002,
-#'     model = "biv_pois"
-#'   ) # bivariate poisson
-#'   print(fit_2, pars = c(
-#'     "home", "rho",
-#'     "sigma_att", "sigma_def"
-#'   ))
-#'
-#'   fit_3 <- stan_foot(
-#'     data = italy_2000_2002,
-#'     mode = "skellam"
-#'   ) # skellam
-#'   print(fit_3, pars = c(
-#'     "home", "sigma_att",
-#'     "sigma_def"
-#'   ))
-#'
-#'   fit_4 <- stan_foot(
-#'     data = italy_2000_2002,
-#'     model = "student_t"
-#'   ) # student_t
-#'   print(fit_4, pars = c("beta"))
-#'
-#'   ## seasonal dynamics, no prediction
-#'
-#'   fit_5 <- stan_foot(
-#'     data = italy_2000_2002,
-#'     model = "double_pois",
-#'     dynamic_type = "seasonal"
-#'   ) # double poisson
-#'   print(fit_5, pars = c(
-#'     "home", "sigma_att",
-#'     "sigma_def"
-#'   ))
-#'
-#'   ## seasonal dynamics, prediction for the last season
-#'
-#'   fit_6 <- stan_foot(
-#'     data = italy_2000_2002,
+#'   # Weighted dynamic model with commensurate priors
+#'   # (Macrì Demartino et al., 2026)
+#'   fit_wdm <- stan_foot(
+#'     data = italy_2018_2021,
 #'     model = "double_pois",
 #'     dynamic_type = "seasonal",
-#'     predict = 170
-#'   ) # double poisson
-#'   print(fit_6, pars = c(
-#'     "home", "sigma_att",
-#'     "sigma_def"
-#'   ))
-#'
-#'   ## other priors' options
-#'   # double poisson with
-#'   # student_t priors for teams abilities
-#'   # and laplace prior for the hyper sds
-#'
-#'   fit_p <- stan_foot(
-#'     data = italy_2000_2002,
-#'     model = "double_pois",
-#'     prior_par = list(
-#'       ability = student_t(4, 0, NULL),
-#'       ability_sd = laplace(0, 1),
-#'       home = normal(1, 10)
-#'     )
+#'     dynamic_weight = TRUE,
+#'     dynamic_par = list(spike = normal(9, 1.5), slab = normal(0, 3)),
+#'     iter_sampling = 1000,
+#'     chains = 4,
+#'     parallel_chains = 4
 #'   )
-#'
-#'   print(fit_p, pars = c(
-#'     "home", "sigma_att",
-#'     "sigma_def"
-#'   ))
+#'   print(fit_wdm, pars = "prob_spike")
 #' }
 #' }
 #' @importFrom dplyr mutate select arrange ungroup
 #' @importFrom tidyr pivot_longer pivot_wider
 #' @importFrom instantiate stan_package_model
+#' @importFrom magrittr "%>%"
 #' @import matrixStats
 #' @export
 
 
 stan_foot <- function(data,
-                      model,
-                      predict = 0,
-                      ranking,
-                      dynamic_type,
-                      prior_par = list(
-                        ability = normal(0, NULL),
-                        ability_sd = cauchy(0, 5),
-                        home = normal(0, 5)
-                      ),
-                      home_effect = TRUE,
-                      norm_method = "none",
-                      ranking_map = NULL,
-                      method = "MCMC",
-                      ...) {
+                       model,
+                       predict = 0,
+                       ranking,
+                       dynamic_type,
+                       dynamic_weight = FALSE,
+                       dynamic_par = list(
+                         common_sd = FALSE,
+                         kl_variance = FALSE,
+                         periods_per_season = 2,
+                         spike = normal(9, 1.5),
+                         slab = normal(0, 3)
+                       ),
+                       prior_par = list(
+                         ability = normal(0, NULL),
+                         ability_sd = cauchy(0, 5),
+                         home = normal(0, 5)
+                       ),
+                       home_effect = TRUE,
+                       norm_method = "none",
+                       ranking_map = NULL,
+                       method = "MCMC",
+                       ...) {
   #   ____________________________________________________________________________
   #   Data Checks                                                             ####
 
@@ -377,9 +391,12 @@ stan_foot <- function(data,
   #   Models' Name Checks                                                     ####
 
 
+  # Note: the experimental Conway-Maxwell-Poisson model (src/stan/com_pois_dynamic.stan)
+  # is intentionally not exposed here.
   allowed_model_names <- c(
     "double_pois",
     "biv_pois",
+    "dixon_coles",
     "neg_bin",
     "skellam",
     "student_t",
@@ -471,7 +488,6 @@ stan_foot <- function(data,
   #   ____________________________________________________________________________
   #   Dynamic Models Checks                                                   ####
 
-
   # names conditions
   if (!missing(dynamic_type)) {
     dynamic_names <- c("weekly", "seasonal")
@@ -482,49 +498,81 @@ stan_foot <- function(data,
     dyn <- ""
     ntimes <- 1
     instants <- rep(1, N)
+    instants_prev <- integer(0)
+
   } else if (dynamic_type == "weekly") {
     dyn <- "dynamic_"
     if (length(unique(data$periods)) != 1) {
       stop("When using weekly dynamics,
-              please consider one season only.")
+            please consider one season only.")
     } else {
       week_count <- ((N + predict) * 2) / (nteams)
       if ((N * 2) %% (nteams) != 0) {
         stop("The number of total matches is not
-              the same for all the teams. Please,
-              provide an adequate number of matches
-              (hint: proportional to the number
-              of matches for each match day).")
+            the same for all the teams. Please,
+            provide an adequate number of matches
+            (hint: proportional to the number
+            of matches for each match day).")
       }
       week <- rep(seq(1, week_count), each = nteams / 2)
       data <- data %>%
         mutate(week)
-      ntimes <- length(unique(week))
-      # time_tot <- c(1:length(unique(week[1:(N+N_prev)])))
-      time <- c(1:length(unique(week)))
+
+      # Calculate training periods
+      ntimes <- length(unique(week[1:N]))
+      time <- c(1:ntimes)
       instants <- week[1:N]
-      # ntimes_prev <- length(unique(week[1:(N+N_prev)]))-length(unique(week[1:N]))
-      # time_prev <- setdiff(time_tot, time)
-      instants_prev <- week[(N + 1):(N + N_prev)]
+
+      # Handle prediction periods
+      if (N_prev > 0) {
+        instants_prev_raw <- week[(N + 1):(N + N_prev)]
+        # Cap at last training period
+        instants_prev <- pmin(instants_prev_raw, ntimes)
+
+        # # Inform user if capping occurred
+        # if (any(instants_prev_raw > ntimes)) {
+        #   message("Note: Predictions for week(s) beyond training data will use ",
+        #           "team parameters from week ", ntimes)
+        # }
+      } else {
+        instants_prev <- integer(0)
+      }
     }
+
   } else if (dynamic_type == "seasonal") {
     dyn <- "dynamic_"
     if (length(unique(data$periods)) == 1) {
       dyn <- ""
       warning("When using seasonal dynamics,
-              please consider more than one season.
-              No dynamics is used to fit the model")
+            please consider more than one season.
+            No dynamics is used to fit the model")
     }
-    season_count <- length(unique(data$periods))
+
     season <- match(data$periods, unique(data$periods))
-    ntimes <- season_count
-    # time_tot <- c(1:length(unique(data$periods)))
-    time <- c(1:season_count)
+
+    # Calculate training periods only
+    ntimes <- length(unique(season[1:N]))
+    time <- c(1:ntimes)
     instants <- season[1:N]
-    # ntimes_prev <- length(unique(season[1:(N+N_prev)]))-length(unique(season[1:N]))
-    # time_prev <- setdiff(time_tot, time)
-    instants_prev <- season[(N + 1):(N + N_prev)]
+
+    # Handle prediction periods
+    if (N_prev > 0) {
+      instants_prev_raw <- season[(N + 1):(N + N_prev)]
+      # Cap at last training period
+      instants_prev <- pmin(instants_prev_raw, ntimes)
+
+      # # Inform user if capping occurred
+      # if (any(instants_prev_raw > ntimes)) {
+      #   message("Note: Predictions for season(s) beyond training data will use ",
+      #           "team parameters from season ", ntimes)
+      # }
+    } else {
+      instants_prev <- integer(0)
+    }
   }
+
+  # Store ntimes_fit for later use
+  ntimes_fit <- ntimes
 
   #   ____________________________________________________________________________
   #   Prior Checks                                                            ####
@@ -661,6 +709,188 @@ stan_foot <- function(data,
     }
   }
 
+
+  #   ____________________________________________________________________________
+  #   Dynamic Weight Check                                                    ####
+
+  if (!is.logical(dynamic_weight) || length(dynamic_weight) != 1) {
+    stop("'dynamic_weight' must be a single logical value (TRUE or FALSE).")
+  }
+
+  if (dynamic_weight == TRUE && missing(dynamic_type)) {
+    stop("'dynamic_weight' requires specifying a dynamic model via 'dynamic_type' argument.")
+  }
+
+  # The student_t dynamic model has no commensurate-prior component
+  if (dynamic_weight && model == "student_t") {
+    stop(
+      "Invalid argument combination: `dynamic_weight = TRUE` is not valid for the `student_t` model.\n",
+      "Please set `dynamic_weight = FALSE` when using the student_t model."
+    )
+  }
+
+  # The commensurate prior of the weighted dynamic model has a normal kernel
+  if (dynamic_weight && prior_dist != "normal") {
+    stop(
+      "Invalid argument combination: `dynamic_weight = TRUE` requires a normal prior for the abilities.\n",
+      "Please set `prior_par$ability = normal(...)` or use `dynamic_weight = FALSE`."
+    )
+  }
+
+  #   ____________________________________________________________________________
+  #   Dynamic Parameters Check                                                ####
+
+  if (!is.list(dynamic_par)) {
+    stop("'dynamic_par' must be a list.")
+  }
+
+  # Validate dynamic_par names
+  allowed_dynamic_par_names <- c(
+    "common_sd", "kl_variance", "periods_per_season", "spike", "slab"
+  )
+
+  unknown_dynamic_par_names <- setdiff(names(dynamic_par), allowed_dynamic_par_names)
+  if (length(unknown_dynamic_par_names) > 0) {
+    stop(paste("Unknown elements in 'dynamic_par':", paste(unknown_dynamic_par_names, collapse = ", ")))
+  }
+
+  # Default options (identical to the defaults in the function signature).
+  # The spike and slab hyperparameters are those used in
+  # Macrì Demartino, Egidi and Torelli (2026).
+  default_dynamic_par <- list(
+    common_sd = FALSE,
+    kl_variance = FALSE,
+    periods_per_season = 2,
+    spike = normal(9, 1.5),
+    slab = normal(0, 3)
+  )
+
+  # Merge with defaults
+  dynamic_par <- utils::modifyList(default_dynamic_par, dynamic_par)
+
+  common_sd <- dynamic_par$common_sd
+  kl_variance <- dynamic_par$kl_variance
+  periods_per_season <- dynamic_par$periods_per_season
+  spike_prior <- dynamic_par$spike
+  slab_prior <- dynamic_par$slab
+
+  # Validate common_sd and kl_variance are logical
+  if (!is.logical(common_sd) || length(common_sd) != 1 || is.na(common_sd)) {
+    stop("'common_sd' must be a single logical value (TRUE or FALSE).")
+  }
+
+  if (!is.logical(kl_variance) || length(kl_variance) != 1 || is.na(kl_variance)) {
+    stop("'kl_variance' must be a single logical value (TRUE or FALSE).")
+  }
+
+  # Validate periods_per_season is a single integer >= 2
+  if (!is.numeric(periods_per_season) || length(periods_per_season) != 1 ||
+    is.na(periods_per_season) || periods_per_season < 2 ||
+    periods_per_season %% 1 != 0) {
+    stop("'periods_per_season' must be a single integer greater than or equal to 2.")
+  }
+
+  # Validate that spike-and-slab priors are half-normal with a positive scale
+  if (!is.list(spike_prior) || !is.list(slab_prior) ||
+    !identical(spike_prior$dist, "normal") || !identical(slab_prior$dist, "normal")) {
+    stop("Arguments spike and slab must be normal priors, e.g. spike = normal(9, 1.5).")
+  }
+
+  if (is.null(spike_prior$scale) || is.null(slab_prior$scale)) {
+    stop("Arguments spike and slab must be normal priors with a positive scale, e.g. slab = normal(0, 3).")
+  }
+
+  # Validate that the location (i.e. the "half" in half-normal) is non-negative
+  if (spike_prior$location < 0 || slab_prior$location < 0) {
+    stop("The location parameter for spike and slab arguments must be greater than or equal to 0.")
+  }
+
+  spike_mean <- spike_prior$location
+  spike_sd <- spike_prior$scale
+  slab_mean <- slab_prior$location
+  slab_sd <- slab_prior$scale
+
+  # K&L requires seasonal dynamics (a single season has no summer break)
+  if (kl_variance && missing(dynamic_type)) {
+    stop("'kl_variance' requires specifying a dynamic model via 'dynamic_type' argument.")
+  }
+
+  if (kl_variance && dynamic_type != "seasonal") {
+    stop(
+      "'kl_variance = TRUE' requires `dynamic_type = \"seasonal\"`: with weekly dynamics ",
+      "a single season is modelled and no summer break occurs."
+    )
+  }
+
+  ind_common_sd <- as.integer(common_sd)
+  ind_kl_sd <- as.integer(kl_variance)
+
+  # Not allowed common sd for att and def with weighted dynamic models
+  if (dynamic_weight && common_sd) {
+    stop(
+      "Invalid argument combination: `dynamic_weight = TRUE` is not compatible with `common_sd = TRUE`.\n",
+      "When using a weighted dynamic model, attack and defense evolution variances are specified separately."
+    )
+  }
+
+  # Not allowed common_sd for student_t model
+  if (model == "student_t" && common_sd) {
+    stop(
+      "Invalid argument combination: `common_sd = TRUE` is not valid for the `student_t` model.\n",
+      "Please set `common_sd = FALSE` when using the student_t model."
+    )
+  }
+
+  # Not allowed kl_variance with dynamic_weight
+  if (dynamic_weight && kl_variance) {
+    stop(
+      "Invalid argument combination: `dynamic_weight = TRUE` is not compatible with `kl_variance = TRUE`.\n",
+      "Please choose one dynamic approach: weighted dynamic (commensurate prior) or Koopman & Lit (2015) variance inflation."
+    )
+  }
+
+  # Not allowed kl_variance with common_sd
+  if (kl_variance && common_sd) {
+    stop(
+      "Invalid argument combination: `kl_variance = TRUE` is not compatible with `common_sd = TRUE`.\n",
+      "Models based on Koopman & Lit (2015) uses separate attack and defense variances with break inflation."
+    )
+  }
+
+  # Not allowed kl_variance for student_t model
+  if (model == "student_t" && kl_variance) {
+    stop(
+      "Invalid argument combination: `kl_variance = TRUE` is not valid for the `student_t` model.\n",
+      "Please set `kl_variance = FALSE` when using the student_t model."
+    )
+  }
+
+  #   ____________________________________________________________________________
+  #   Compute Summer Break Indicators for K&L                                 ####
+
+  # Each season is made of `periods_per_season` consecutive periods, e.g. with
+  # periods_per_season = 2:
+  # Period 1,2 -> Season 1 (1 = first half, 2 = second half)
+  # Period 3,4 -> Season 2 (3 = first half after the summer break, 4 = second half)
+  # Period 5,6 -> Season 3 (5 = first half after the summer break, 6 = second half)
+  # Hence a summer break precedes the periods 1 + m * periods_per_season, m = 1, 2, ...
+  # (only the training periods 1, ..., ntimes are considered).
+
+  is_summer_break <- rep(0L, max(1, ntimes))
+
+  if (!missing(dynamic_type) && dynamic_type == "seasonal" && isTRUE(kl_variance)) {
+    if (ntimes <= periods_per_season) {
+      stop(
+        "'kl_variance = TRUE' requires more than 'periods_per_season' (", periods_per_season,
+        ") training periods, so that at least one summer break falls within the training data. ",
+        "Found ", ntimes, " training period(s): check the 'periods' column, the 'predict' ",
+        "argument and the 'periods_per_season' option."
+      )
+    }
+    summer_break_periods <- seq.int(1 + periods_per_season, ntimes, by = periods_per_season)
+    is_summer_break[summer_break_periods] <- 1L
+  }
+
   #   ____________________________________________________________________________
   #   Home Effect Check                                                       ####
 
@@ -764,6 +994,11 @@ stan_foot <- function(data,
       stop("Ranking points type must be numeric or integer. Please check that the column 'rank_points' contains numerical values.")
     }
 
+    # Check for more than one ranking per team and period
+    if (anyDuplicated(ranking[, c("periods", "team")]) > 0) {
+      stop("'ranking' contains more than one row for the same team and period.")
+    }
+
     # Define the number of ranking periods for STAN
     ntimes_rank <- length(unique(ranking$periods))
     ranking$periods <- match(ranking$periods, unique(ranking$periods))
@@ -791,6 +1026,21 @@ stan_foot <- function(data,
 
     # Update ranking to be the transformed version
     ranking_matrix <- as.matrix(ranking_transformed[, -1])
+
+    missing_teams <- setdiff(teams, colnames(ranking_matrix))
+    if (length(missing_teams) > 0) {
+      stop(sprintf(
+        "The following teams of 'data' have no ranking points in 'ranking': %s.",
+        paste(missing_teams, collapse = ", ")
+      ))
+    }
+
+    # Columns in the order of the team indexes passed to Stan (other teams are dropped)
+    ranking_matrix <- ranking_matrix[, as.character(teams), drop = FALSE]
+
+    if (anyNA(ranking_matrix)) {
+      stop("Some teams of 'data' have no ranking points in some periods of 'ranking'.")
+    }
   }
 
 
@@ -799,7 +1049,6 @@ stan_foot <- function(data,
   ##  ............................................................................
   ##  Ranking periods map with the data periods                               ####
 
-  ntimes_fit <- length(unique(instants))
 
   if (ntimes_rank > 1) {
     if (is.null(ranking_map)) {
@@ -849,14 +1098,27 @@ stan_foot <- function(data,
     nu = user_dots$nu,
     ind_home = ind_home,
     mean_home = mean_home,
-    sd_home = sd_home
-  )
+    sd_home = sd_home,
+    ind_comm_prior = 0,
+    mu_spike = spike_mean,
+    sd_spike = spike_sd,
+    mu_slab = slab_mean,
+    sd_slab = slab_sd  )
 
   if (!missing(dynamic_type)) {
     data_stan$ntimes <- ntimes
     data_stan$instants <- instants
     data_stan$time <- time
     data_stan$instants_prev <- if (N_prev > 0) instants_prev else integer(0)
+    data_stan$ind_common_sigma <- ind_common_sd
+    data_stan$ind_kl_sd <- ind_kl_sd
+    data_stan$is_summer_break <- is_summer_break
+  }
+
+  if (dynamic_weight == TRUE) {
+    data_stan$ind_comm_prior <- 1
+    data_stan$ind_common_sigma <- 0
+    data_stan$ind_kl_sd <- 0
   }
 
   # Construct the final Stan model filename
@@ -1056,6 +1318,6 @@ stan_foot <- function(data,
     stan_args = args,
     alg_method = method
   )
-  class(output) <- "stanFoot"
+  class(output) <- c("stanFoot", "footBayes")
   return(output)
 }
